@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from models import db
 
 # import routes
-from routes.giocatori import giocatori_bp
+from routes.users import users_blueprint 
 
 # load env variables from .env file
 load_dotenv()
@@ -23,7 +23,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False;
 db.init_app(app)
 
 # register external ruotes
-app.register_blueprint(giocatori_bp)
+app.register_blueprint(users_blueprint)
 
 @app.route("/")
 def index():
