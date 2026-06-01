@@ -1,36 +1,29 @@
-from flask import Blueprint, jsonify, request
-from models import db, User, Application
+from flask import Blueprint, jsonify, request, g
+
+from ..auth import (
+    ROLE_OVERSEAS,
+    ROLE_REFERENT,
+    ROLE_STUDENT,
+    custom_jwt_required,
+)
+from models import db, Application
 
 applications_blueprint = Blueprint("applications", __name__)
 
-ROLE_STUDENT = "student"
-ROLE_REFERENT = "referent"
-ROLE_OVERSEAS = "overseas_staff"
-
-
-def normalize_role(role):
-    if not role:
-        return None
-    return role.strip().lower().replace(" ", "_")
-
 
 @applications_blueprint.route("/applications", methods=["GET"])
+@custom_jwt_required()
 def list_applications():
-    user_id = request.args.get("user_id", type=int)
-    if not user_id:
-        return jsonify({"error": "user_id is required"}), 400
-
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({"error": "user not found"}), 404
-
-    role = normalize_role(user.role)
+    user = g.current_user
+    role = g.current_user_role
     if role == ROLE_STUDENT:
         applications = Application.query.filter_by(user_id=user.id).all()
     elif role == ROLE_REFERENT:
         applications = Application.query.filter_by(referent_id=user.id).all()
     elif role == ROLE_OVERSEAS:
-        applications = Application.query.filter_by(host_institution=user.id_institution).all()
+        applications = Application.query.filter_by(
+            host_institution=user.id_institution
+        ).all()
     else:
         return jsonify({"error": "role not authorized"}), 403
 
@@ -38,20 +31,15 @@ def list_applications():
 
 
 @applications_blueprint.route("/applications/<int:application_id>", methods=["PATCH"])
+@custom_jwt_required()
 def update_application(application_id):
-    user_id = request.args.get("user_id", type=int)
-    if not user_id:
-        return jsonify({"error": "user_id is required"}), 400
-
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({"error": "user not found"}), 404
+    user = g.current_user
 
     application = Application.query.get(application_id)
     if not application:
         return jsonify({"error": "application not found"}), 404
 
-    role = normalize_role(user.role)
+    role = g.current_user_role
     if role == ROLE_OVERSEAS:
         return jsonify({"error": "overseas staff cannot modify applications"}), 403
     if role == ROLE_STUDENT and application.user_id != user.id:
@@ -74,8 +62,11 @@ def update_application(application_id):
         "referent_id",
     }
     unknown_fields = set(payload.keys()) - allowed_fields
+    # checks that no unexistent fields get passed
     if unknown_fields:
-        return jsonify({"error": f"unknown fields: {', '.join(sorted(unknown_fields))}"}), 400
+        return jsonify(
+            {"error": f"unknown fields: {', '.join(sorted(unknown_fields))}"}
+        ), 400
 
     for field, value in payload.items():
         if field in {"year", "sending_institution", "host_institution", "referent_id"}:
