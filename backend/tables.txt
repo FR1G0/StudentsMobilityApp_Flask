@@ -1,0 +1,60 @@
+Users:
+id : ID PK AUTO_INCREMENT
+email : VARCHAR(255) UNIQUE NOT NULL
+password_hash : VARCHAR(255) NOT NULL
+role : VARCHAR(50) NOT NULL
+firstname : VARCHAR(255) NOT NULL
+lastname : VARCHAR(255) NOT NULL
+id_institution : ID FK(Institutions) NOT NULL
+
+---
+
+Institutions:
+id : ID PK AUTO_INCREMENT
+name : VARCHAR(255) NOT NULL
+country : VARCHAR(255) NOT NULL
+city : VARCHAR(255) NOT NULL
+
+---
+
+Applications:
+id : ID PK AUTO_INCREMENT
+year : INT NOT NULL
+semester : VARCHAR(20) NOT NULL
+status : VARCHAR(20) NOT NULL
+sending_institution : ID FK(Institutions) NOT NULL
+host_institution : ID FK(Institutions) NOT NULL
+user_id : ID FK(Users) NOT NULL
+referent_id : ID FK(Users) NOT NULL
+
+---
+
+Exams:
+code : VARCHAR(20) PK
+name : VARCHAR(255) NOT NULL
+id_institution : ID FK(Institutions) NOT NULL
+credits : INT NOT NULL
+
+---
+
+MappedExams:
+id : ID PK AUTO_INCREMENT
+application_id : ID FK(Applications) NOT NULL
+exam_code : VARCHAR(20) NOT NULL
+mapped_exam_code : VARCHAR(20) NOT NULL
+
+---
+
+UploadedDocuments:
+id : ID PK AUTO_INCREMENT
+document_type : VARCHAR(50) NOT NULL
+file_path : VARCHAR(255) NOT NULL
+user_id : ID FK(Users) NOT NULL
+application_id : ID FK(Applications) NOT NULL
+
+---
+
+PartnerInstitution:
+id : ID PK AUTO_INCREMENT
+id_institution : ID FK(Institutions) NOT NULL
+id_partner_institution : ID FK(Institutions) NOT NULL

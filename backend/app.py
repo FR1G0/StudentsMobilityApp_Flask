@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 from models import db
 
 # import routes
-from routes.users import users_blueprint 
+from routes.users import users_blueprint
+from routes.applications import applications_blueprint
 
 # load env variables from .env file
 load_dotenv()
@@ -24,6 +25,7 @@ db.init_app(app)
 
 # register external ruotes
 app.register_blueprint(users_blueprint)
+app.register_blueprint(applications_blueprint)
 
 @app.route("/")
 def index():
