@@ -23,13 +23,15 @@ def login():
         return jsonify({"error": "invalid credentials"}), 401
 
     secret = _get_jwt_secret()
+    if not secret:
+        return jsonify({"error": "JWT secret not configured"}), 500
+
     payload = {
         "sub": user.id,
         "role": user.role,
         "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=24)
     }
     token = jwt.encode(payload, secret, algorithm="HS256")
-
     return jsonify({"token": token, "user": user.to_dict()}), 200
 
 
