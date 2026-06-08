@@ -1,6 +1,7 @@
 from flask_sqlalchemy import SQLAlchemy
 from flask import Blueprint, blueprints, jsonify, request
 from models import db, User
+from ..auth import custom_jwt_required
 
 # define blueprinty
 users_blueprint = Blueprint("users", __name__)
@@ -8,6 +9,7 @@ users_blueprint = Blueprint("users", __name__)
 
 # fetch all users
 @users_blueprint.route("/user", methods=["GET"])
+@custom_jwt_required()
 def all_users():
     try:
         users = User.query.all()
@@ -21,6 +23,7 @@ def all_users():
 
 # fetch user by id
 @users_blueprint.route("/user/<int:id>", methods=["GET"])
+@custom_jwt_required()
 def get_user(id):
     try:
         user = User.query.get(id)
@@ -28,11 +31,12 @@ def get_user(id):
             return jsonify({}), 500
         return user.to_dict(), 200
     except Exception as e:
-        return jsonify({"error": st(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 
 # fetch user by firstname
 @users_blueprint.route("/user/name:<string:name>", methods=["GET"])
+@custom_jwt_required()
 def get_user_by_name(name):
     try:
         name = name.lower()
@@ -63,6 +67,7 @@ def get_user_by_name(name):
 
 # fetch user by firstname and lastname
 @users_blueprint.route("/user/<string:name>/<string:surname>", methods=["GET"])
+@custom_jwt_required()
 def get_user_by_email(name, surname):
     try:
         name = name.lower()
