@@ -34,7 +34,7 @@ cd frontend
 if [ ! -d "node_modules" ]; then
     npm install
 fi
-npx ng serve --configuration=development
-
 # Cleanup backend process on exit
 trap "kill $BACKEND_PID" EXIT
+
+npx ng serve --configuration=development
