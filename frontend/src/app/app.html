@@ -4,11 +4,19 @@
   <div class="flex min-h-screen">
     <aside class="flex flex-col w-64 shrink-0 overflow-hidden border-r bg-bg-surface border-border-subtle transition-all duration-200 peer-checked:w-16" >
         <div class="text-lg font-bold flex h-12 items-center justify-start p-4">
-          Students Mobility App
+          {{ title }}
         </div>
         <ul class="flex flex-col gap-2 px-4">
           @for(link of links; track link.href) {
-            <li><a href="#">{{link.text}}</a></li>
+            <li>
+              <a
+                [routerLink]="link.href"
+                routerLinkActive="bg-bg-raised text-text-primary"
+                class="block rounded-md px-3 py-2 text-text-secondary hover:bg-bg-raised hover:text-text-primary"
+              >
+                {{ link.text }}
+              </a>
+            </li>
           }
         </ul>
         <div class="mt-auto p-4 grid grid-cols-[auto_auto_1fr] items-center gap-2">
@@ -23,7 +31,9 @@
     </aside>
 
     <div class="flex min-w-0 flex-1 flex-col">
-      <header class="flex h-12 items-center justify-between border-b bg-bg-surface border-bg-raised px-4" > Title </header>
+      <header class="flex h-12 items-center justify-between border-b bg-bg-surface border-bg-raised px-4">
+        <span>{{ title }}</span>
+      </header>
         <main class="flex-1 overflow-auto p-4" >
           <router-outlet></router-outlet>
         </main>

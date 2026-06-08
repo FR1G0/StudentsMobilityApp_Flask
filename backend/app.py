@@ -2,7 +2,9 @@ import os
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+from flask_migrate import Migrate
 from dotenv import load_dotenv
+from sqlalchemy import text
 
 # import db initialized
 from models import db
@@ -10,6 +12,7 @@ from models import db
 # import routes
 from routes.users import users_blueprint
 from routes.applications import applications_blueprint
+from routes.api import api_blueprint
 
 # load env variables from .env file
 load_dotenv()
@@ -23,15 +26,26 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False;
 
 db.init_app(app)
+migrate = Migrate(app, db)
 
 # register external ruotes
-app.register_blueprint(users_blueprint)
-app.register_blueprint(applications_blueprint)
+app.register_blueprint(users_blueprint, url_prefix="/api")
+app.register_blueprint(applications_blueprint, url_prefix="/api")
+app.register_blueprint(api_blueprint)
 
 @app.route("/")
 def index():
     "Health check"
-    return jsonify({"status":"ok", "message": "API is running"})
+    result = db.session.execute(
+        text("SELECT current_database() AS database_name")
+    ).mappings().one()
+    return jsonify(
+        {
+            "status": "ok",
+            "message": "API is running",
+            "database_name": result["database_name"],
+        }
+    )
 
 if __name__ == "__main__":
     app.run(

@@ -1,6 +1,8 @@
+from datetime import datetime
+
 from flask import Blueprint, jsonify, request, g
 
-from ..auth import (
+from auth import (
     ROLE_OVERSEAS,
     ROLE_REFERENT,
     ROLE_STUDENT,
@@ -14,12 +16,16 @@ applications_blueprint = Blueprint("applications", __name__)
 @applications_blueprint.route("/applications", methods=["GET"])
 @custom_jwt_required()
 def list_applications():
+    # Multitenancy: filter results based on user role to ensure data isolation.
+    # Students see own data; Staff/Referents see data scoped to their institution.
     user = g.current_user
     role = g.current_user_role
     if role == ROLE_STUDENT:
         applications = Application.query.filter_by(user_id=user.id).all()
     elif role == ROLE_REFERENT:
-        applications = Application.query.filter_by(referent_id=user.id).all()
+        applications = Application.query.filter_by(
+            sending_institution=user.id_institution
+        ).all()
     elif role == ROLE_OVERSEAS:
         applications = Application.query.filter_by(
             host_institution=user.id_institution
@@ -44,7 +50,7 @@ def update_application(application_id):
         return jsonify({"error": "overseas staff cannot modify applications"}), 403
     if role == ROLE_STUDENT and application.user_id != user.id:
         return jsonify({"error": "student cannot modify this application"}), 403
-    if role == ROLE_REFERENT and application.referent_id != user.id:
+    if role == ROLE_REFERENT and application.sending_institution != user.id_institution:
         return jsonify({"error": "referent cannot modify this application"}), 403
     if role not in {ROLE_STUDENT, ROLE_REFERENT}:
         return jsonify({"error": "role not authorized"}), 403
@@ -57,9 +63,9 @@ def update_application(application_id):
         "year",
         "semester",
         "status",
+        "date_submitted",
         "sending_institution",
         "host_institution",
-        "referent_id",
     }
     unknown_fields = set(payload.keys()) - allowed_fields
     # checks that no unexistent fields get passed
@@ -69,10 +75,19 @@ def update_application(application_id):
         ), 400
 
     for field, value in payload.items():
-        if field in {"year", "sending_institution", "host_institution", "referent_id"}:
+        if field in {"year", "sending_institution", "host_institution"}:
             if not isinstance(value, int):
                 return jsonify({"error": f"{field} must be an integer"}), 400
             setattr(application, field, value)
+            continue
+        if field == "date_submitted":
+            if not isinstance(value, str):
+                return jsonify({"error": "date_submitted must be an ISO-8601 string"}), 400
+            try:
+                parsed_date = datetime.fromisoformat(value)
+            except ValueError:
+                return jsonify({"error": "date_submitted must be an ISO-8601 string"}), 400
+            setattr(application, field, parsed_date)
             continue
         setattr(application, field, value)
 

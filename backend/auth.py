@@ -6,7 +6,7 @@ from models import User
 
 ROLE_STUDENT = "student"
 ROLE_REFERENT = "referent"
-ROLE_OVERSEAS = "overseas_staff"
+ROLE_OVERSEAS = "staff"
 
 
 def normalize_role(role):
@@ -19,6 +19,7 @@ def _get_jwt_secret():
     return os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY")
 
 
+# Decodes JWT and injects User object into Flask 'g' for role-based access control.
 def custom_jwt_required():
     def decorator(f):
         @wraps(f)
