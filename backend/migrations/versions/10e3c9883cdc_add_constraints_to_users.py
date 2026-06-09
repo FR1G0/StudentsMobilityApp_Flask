@@ -34,7 +34,7 @@ def upgrade():
         batch_op.alter_column('lastname',
                existing_type=sa.VARCHAR(length=255),
                nullable=False)
-        batch_op.create_unique_constraint(None, ['email'])
+        batch_op.create_unique_constraint("users_email_key", ["email"])
 
     # ### end Alembic commands ###
 
