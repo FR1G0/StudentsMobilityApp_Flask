@@ -1,82 +1,105 @@
-from flask_sqlalchemy import SQLAlchemy
-from flask import Blueprint, blueprints, jsonify, request
-from models import db, User
-from ..auth import custom_jwt_required
+import datetime
+import jwt
+from flask import Blueprint, jsonify, request, current_app
+from sqlalchemy import text
 
-# define blueprinty
+from models import User, db
+from auth import custom_jwt_required, _get_jwt_secret
+
 users_blueprint = Blueprint("users", __name__)
 
 
-# fetch all users
+@users_blueprint.route("/login", methods=["POST"])
+def login():
+    data = request.get_json()
+    if not data or not data.get("email") or not data.get("password"):
+        return jsonify({"error": "missing credentials"}), 400
+
+    user = User.query.filter_by(email=data["email"]).first()
+
+    # NOTE: In real app, use password hashing (e.g., bcrypt)
+    # Here checking against plain password_hash for simplicity
+    if not user or user.password_hash != data["password"]:
+        return jsonify({"error": "invalid credentials"}), 401
+
+    secret = _get_jwt_secret()
+    if not secret:
+        return jsonify({"error": "JWT secret not configured"}), 500
+
+    payload = {
+        "sub": user.id,
+        "role": user.role,
+        "exp": datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=24)
+    }
+    token = jwt.encode(payload, secret, algorithm="HS256")
+    return jsonify({"token": token, "user": user.to_dict()}), 200
+
+
 @users_blueprint.route("/user", methods=["GET"])
 @custom_jwt_required()
 def all_users():
     try:
         users = User.query.all()
-        all_u = []
-        for u in users:
-            all_u.append(u.to_dict())
-        return jsonify(all_u), 200
+        return jsonify([user.to_dict() for user in users]), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-# fetch user by id
 @users_blueprint.route("/user/<int:id>", methods=["GET"])
 @custom_jwt_required()
 def get_user(id):
     try:
         user = User.query.get(id)
         if not user:
-            return jsonify({}), 500
-        return user.to_dict(), 200
+            return jsonify({"error": "user not found"}), 404
+        return jsonify(user.to_dict()), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-# fetch user by firstname
 @users_blueprint.route("/user/name:<string:name>", methods=["GET"])
 @custom_jwt_required()
 def get_user_by_name(name):
     try:
-        name = name.lower()
-        # WARN: raw sql query
-        result = db.session.execute(
-            db.text("SELECT * FROM users WHERE LOWER(firstname) = :name"),
-            {"name": name},
-        )
-        data = result.fetchall()
-        users = []
-        if not data:
-            return jsonify({}), 500
-        # raw data assembling
-        for u in data:
-            users.append(
-                {
-                    "id": u.id,
-                    "email": u.email,
-                    "role": u.role,
-                    "firstname": u.firstname,
-                    "lastname": u.lastname,
-                }
+        result = (
+            db.session.execute(
+                text("SELECT * FROM users WHERE LOWER(firstname) = :name"),
+                {"name": name.lower()},
             )
-        return jsonify(users), 200
+            .mappings()
+            .all()
+        )
+        if not result:
+            return jsonify({"error": "user not found"}), 404
+
+        return (
+            jsonify(
+                [
+                    {
+                        "id": row["id"],
+                        "email": row["email"],
+                        "role": row["role"],
+                        "firstname": row["firstname"],
+                        "lastname": row["lastname"],
+                    }
+                    for row in result
+                ]
+            ),
+            200,
+        )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-# fetch user by firstname and lastname
 @users_blueprint.route("/user/<string:name>/<string:surname>", methods=["GET"])
 @custom_jwt_required()
 def get_user_by_email(name, surname):
     try:
-        name = name.lower()
-        surname = surname.lower()
         user = User.query.filter(
-            (User.firstname == name) & (User.lastname == surname)
+            (User.firstname == name.lower()) & (User.lastname == surname.lower())
         ).first()
         if not user:
-            return jsonify({}), 500
-        return jsonify(user), 200
+            return jsonify({"error": "user not found"}), 404
+        return jsonify(user.to_dict()), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500

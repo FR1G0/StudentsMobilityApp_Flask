@@ -1,25 +1,23 @@
-import { Component, signal } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { Component } from '@angular/core';
+import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet],
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
 export class App {
-  protected readonly title = signal('frontend');
+  protected readonly title = 'Students Mobility App';
 
   links : link[] = [
     {
       text: 'Home',
-      href: '/home',
-      icon: 'home'
+      href: '/home'
     },
     {
       text: 'Applications',
-      href: '/application-list',
-      icon: 'home'
+      href: '/application-list'
     },
   ];
 }
@@ -27,5 +25,4 @@ export class App {
 interface link {
   text: string;
   href: string;
-  icon: string;
 }
