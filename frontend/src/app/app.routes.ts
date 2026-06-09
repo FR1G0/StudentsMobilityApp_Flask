@@ -1,26 +1,17 @@
 import { Routes } from '@angular/router';
 
+import { ApplicationsList } from './applications-list/applications-list';
+import { ApplicationForm } from './application-form/application-form';
 
 export const routes: Routes = [
   {
-    path: '',
-    pathMatch: 'full',
-    redirectTo: 'home',
+    path: "applications",
+    title: "SMA - List Applications",
+    component: ApplicationsList
   },
   {
-    path: 'home',
-    loadComponent: () =>
-      import('./pages/home-page.component').then((m) => m.HomePageComponent),
-  },
-  {
-    path: 'application-list',
-    loadComponent: () =>
-      import('./pages/application-list.component').then(
-        (m) => m.ApplicationListComponent,
-      ),
-  },
-  {
-    path: '**',
-    redirectTo: 'home',
-  },
+    path: "form",
+    title: "SMA - Application",
+    component: ApplicationForm
+  }
 ];
