@@ -23,9 +23,7 @@ def list_applications():
     if role == ROLE_STUDENT:
         applications = Application.query.filter_by(user_id=user.id).all()
     elif role == ROLE_REFERENT:
-        applications = Application.query.filter_by(
-            sending_institution=user.id_institution
-        ).all()
+        applications = Application.query.filter_by(referent_id=user.id).all()
     elif role == ROLE_OVERSEAS:
         applications = Application.query.filter_by(
             host_institution=user.id_institution
@@ -50,7 +48,7 @@ def update_application(application_id):
         return jsonify({"error": "overseas staff cannot modify applications"}), 403
     if role == ROLE_STUDENT and application.user_id != user.id:
         return jsonify({"error": "student cannot modify this application"}), 403
-    if role == ROLE_REFERENT and application.sending_institution != user.id_institution:
+    if role == ROLE_REFERENT and application.referent_id != user.id:
         return jsonify({"error": "referent cannot modify this application"}), 403
     if role not in {ROLE_STUDENT, ROLE_REFERENT}:
         return jsonify({"error": "role not authorized"}), 403
