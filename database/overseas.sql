@@ -2,9 +2,9 @@
 -- PostgreSQL database dump
 --
 
-\restrict cDpeYIQswHUyul7hcIbNaDXa7aYfGbEdlMhWsuRpyCD5qgyUBEANUGMd4nL2C3a
+\restrict Z0v90aCk60nHS47fOAO3QdbhVZFoVW44PnynVUAAzfCYUcFvrVsrAQKF71GeTxv
 
--- Dumped from database version 18.4
+-- Dumped from database version 17.10
 -- Dumped by pg_dump version 18.4
 
 SET statement_timeout = 0;
@@ -24,25 +24,40 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
--- Name: applications; Type: TABLE; Schema: public; Owner: postgres
+-- Name: alembic_version; Type: TABLE; Schema: public; Owner: myuser
+--
+
+CREATE TABLE public.alembic_version (
+    version_num character varying(32) NOT NULL
+);
+
+
+ALTER TABLE public.alembic_version OWNER TO myuser;
+
+--
+-- Name: applications; Type: TABLE; Schema: public; Owner: myuser
 --
 
 CREATE TABLE public.applications (
     id integer NOT NULL,
     year integer NOT NULL,
-    semester character varying(20) NOT NULL,
-    status character varying(20) NOT NULL,
-    date_submitted timestamp without time zone NOT NULL,
+    semester character varying(50) NOT NULL,
+    status character varying(32) NOT NULL,
+    date_submitted timestamp with time zone,
     sending_institution integer NOT NULL,
     host_institution integer NOT NULL,
-    user_id integer NOT NULL
+    user_id integer NOT NULL,
+    date_arrived date,
+    date_departure date,
+    notes text,
+    referent_id integer
 );
 
 
 ALTER TABLE public.applications OWNER TO myuser;
 
 --
--- Name: applications_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+-- Name: applications_id_seq; Type: SEQUENCE; Schema: public; Owner: myuser
 --
 
 CREATE SEQUENCE public.applications_id_seq
@@ -57,28 +72,51 @@ CREATE SEQUENCE public.applications_id_seq
 ALTER SEQUENCE public.applications_id_seq OWNER TO myuser;
 
 --
--- Name: applications_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+-- Name: applications_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: myuser
 --
 
 ALTER SEQUENCE public.applications_id_seq OWNED BY public.applications.id;
 
 
 --
--- Name: exams; Type: TABLE; Schema: public; Owner: postgres
+-- Name: exams; Type: TABLE; Schema: public; Owner: myuser
 --
 
 CREATE TABLE public.exams (
-    code character varying(20) NOT NULL,
+    id integer NOT NULL,
+    code character varying(50) NOT NULL,
     name character varying(255) NOT NULL,
-    id_institution integer NOT NULL,
-    credits integer NOT NULL
+    credits integer NOT NULL,
+    id_institution integer NOT NULL
 );
 
 
 ALTER TABLE public.exams OWNER TO myuser;
 
 --
--- Name: institutions; Type: TABLE; Schema: public; Owner: postgres
+-- Name: exams_id_seq; Type: SEQUENCE; Schema: public; Owner: myuser
+--
+
+CREATE SEQUENCE public.exams_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.exams_id_seq OWNER TO myuser;
+
+--
+-- Name: exams_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: myuser
+--
+
+ALTER SEQUENCE public.exams_id_seq OWNED BY public.exams.id;
+
+
+--
+-- Name: institutions; Type: TABLE; Schema: public; Owner: myuser
 --
 
 CREATE TABLE public.institutions (
@@ -92,7 +130,7 @@ CREATE TABLE public.institutions (
 ALTER TABLE public.institutions OWNER TO myuser;
 
 --
--- Name: institutions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+-- Name: institutions_id_seq; Type: SEQUENCE; Schema: public; Owner: myuser
 --
 
 CREATE SEQUENCE public.institutions_id_seq
@@ -107,28 +145,34 @@ CREATE SEQUENCE public.institutions_id_seq
 ALTER SEQUENCE public.institutions_id_seq OWNER TO myuser;
 
 --
--- Name: institutions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+-- Name: institutions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: myuser
 --
 
 ALTER SEQUENCE public.institutions_id_seq OWNED BY public.institutions.id;
 
 
 --
--- Name: mapped_exams; Type: TABLE; Schema: public; Owner: postgres
+-- Name: mapped_exams; Type: TABLE; Schema: public; Owner: myuser
 --
 
 CREATE TABLE public.mapped_exams (
     id integer NOT NULL,
     application_id integer NOT NULL,
-    exam_code character varying(20) NOT NULL,
-    mapped_exam_code character varying(20) NOT NULL
+    date_passed date,
+    grade integer,
+    status character varying(32) NOT NULL,
+    decision_date timestamp with time zone,
+    notes text,
+    previous_id integer NOT NULL,
+    host_exam_id integer NOT NULL,
+    sending_exam_id integer NOT NULL
 );
 
 
 ALTER TABLE public.mapped_exams OWNER TO myuser;
 
 --
--- Name: mapped_exams_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+-- Name: mapped_exams_id_seq; Type: SEQUENCE; Schema: public; Owner: myuser
 --
 
 CREATE SEQUENCE public.mapped_exams_id_seq
@@ -143,14 +187,14 @@ CREATE SEQUENCE public.mapped_exams_id_seq
 ALTER SEQUENCE public.mapped_exams_id_seq OWNER TO myuser;
 
 --
--- Name: mapped_exams_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+-- Name: mapped_exams_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: myuser
 --
 
 ALTER SEQUENCE public.mapped_exams_id_seq OWNED BY public.mapped_exams.id;
 
 
 --
--- Name: partner_institution; Type: TABLE; Schema: public; Owner: postgres
+-- Name: partner_institution; Type: TABLE; Schema: public; Owner: myuser
 --
 
 CREATE TABLE public.partner_institution (
@@ -163,7 +207,7 @@ CREATE TABLE public.partner_institution (
 ALTER TABLE public.partner_institution OWNER TO myuser;
 
 --
--- Name: partner_institution_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+-- Name: partner_institution_id_seq; Type: SEQUENCE; Schema: public; Owner: myuser
 --
 
 CREATE SEQUENCE public.partner_institution_id_seq
@@ -178,14 +222,14 @@ CREATE SEQUENCE public.partner_institution_id_seq
 ALTER SEQUENCE public.partner_institution_id_seq OWNER TO myuser;
 
 --
--- Name: partner_institution_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+-- Name: partner_institution_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: myuser
 --
 
 ALTER SEQUENCE public.partner_institution_id_seq OWNED BY public.partner_institution.id;
 
 
 --
--- Name: uploaded_documents; Type: TABLE; Schema: public; Owner: postgres
+-- Name: uploaded_documents; Type: TABLE; Schema: public; Owner: myuser
 --
 
 CREATE TABLE public.uploaded_documents (
@@ -193,14 +237,18 @@ CREATE TABLE public.uploaded_documents (
     document_type character varying(50) NOT NULL,
     file_path character varying(255) NOT NULL,
     user_id integer NOT NULL,
-    application_id integer NOT NULL
+    application_id integer NOT NULL,
+    date_updated timestamp with time zone DEFAULT now() NOT NULL,
+    status character varying(32) NOT NULL,
+    decision_date timestamp with time zone,
+    notes text
 );
 
 
 ALTER TABLE public.uploaded_documents OWNER TO myuser;
 
 --
--- Name: uploaded_documents_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+-- Name: uploaded_documents_id_seq; Type: SEQUENCE; Schema: public; Owner: myuser
 --
 
 CREATE SEQUENCE public.uploaded_documents_id_seq
@@ -215,14 +263,14 @@ CREATE SEQUENCE public.uploaded_documents_id_seq
 ALTER SEQUENCE public.uploaded_documents_id_seq OWNER TO myuser;
 
 --
--- Name: uploaded_documents_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+-- Name: uploaded_documents_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: myuser
 --
 
 ALTER SEQUENCE public.uploaded_documents_id_seq OWNED BY public.uploaded_documents.id;
 
 
 --
--- Name: users; Type: TABLE; Schema: public; Owner: postgres
+-- Name: users; Type: TABLE; Schema: public; Owner: myuser
 --
 
 CREATE TABLE public.users (
@@ -239,7 +287,7 @@ CREATE TABLE public.users (
 ALTER TABLE public.users OWNER TO myuser;
 
 --
--- Name: users_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+-- Name: users_id_seq; Type: SEQUENCE; Schema: public; Owner: myuser
 --
 
 CREATE SEQUENCE public.users_id_seq
@@ -254,72 +302,88 @@ CREATE SEQUENCE public.users_id_seq
 ALTER SEQUENCE public.users_id_seq OWNER TO myuser;
 
 --
--- Name: users_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+-- Name: users_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: myuser
 --
 
 ALTER SEQUENCE public.users_id_seq OWNED BY public.users.id;
 
 
 --
--- Name: applications id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: applications id; Type: DEFAULT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.applications ALTER COLUMN id SET DEFAULT nextval('public.applications_id_seq'::regclass);
 
 
 --
--- Name: institutions id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: exams id; Type: DEFAULT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.exams ALTER COLUMN id SET DEFAULT nextval('public.exams_id_seq'::regclass);
+
+
+--
+-- Name: institutions id; Type: DEFAULT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.institutions ALTER COLUMN id SET DEFAULT nextval('public.institutions_id_seq'::regclass);
 
 
 --
--- Name: mapped_exams id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: mapped_exams id; Type: DEFAULT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.mapped_exams ALTER COLUMN id SET DEFAULT nextval('public.mapped_exams_id_seq'::regclass);
 
 
 --
--- Name: partner_institution id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: partner_institution id; Type: DEFAULT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.partner_institution ALTER COLUMN id SET DEFAULT nextval('public.partner_institution_id_seq'::regclass);
 
 
 --
--- Name: uploaded_documents id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: uploaded_documents id; Type: DEFAULT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.uploaded_documents ALTER COLUMN id SET DEFAULT nextval('public.uploaded_documents_id_seq'::regclass);
 
 
 --
--- Name: users id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: users id; Type: DEFAULT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.users ALTER COLUMN id SET DEFAULT nextval('public.users_id_seq'::regclass);
 
 
 --
--- Data for Name: applications; Type: TABLE DATA; Schema: public; Owner: postgres
+-- Data for Name: alembic_version; Type: TABLE DATA; Schema: public; Owner: myuser
 --
 
-COPY public.applications (id, year, semester, status, date_submitted, sending_institution, host_institution, user_id) FROM stdin;
+COPY public.alembic_version (version_num) FROM stdin;
+00cd7fdc75d9
 \.
 
 
 --
--- Data for Name: exams; Type: TABLE DATA; Schema: public; Owner: postgres
+-- Data for Name: applications; Type: TABLE DATA; Schema: public; Owner: myuser
 --
 
-COPY public.exams (code, name, id_institution, credits) FROM stdin;
+COPY public.applications (id, year, semester, status, date_submitted, sending_institution, host_institution, user_id, date_arrived, date_departure, notes, referent_id) FROM stdin;
 \.
 
 
 --
--- Data for Name: institutions; Type: TABLE DATA; Schema: public; Owner: postgres
+-- Data for Name: exams; Type: TABLE DATA; Schema: public; Owner: myuser
+--
+
+COPY public.exams (id, code, name, credits, id_institution) FROM stdin;
+\.
+
+
+--
+-- Data for Name: institutions; Type: TABLE DATA; Schema: public; Owner: myuser
 --
 
 COPY public.institutions (id, name, country, city) FROM stdin;
@@ -347,15 +411,15 @@ COPY public.institutions (id, name, country, city) FROM stdin;
 
 
 --
--- Data for Name: mapped_exams; Type: TABLE DATA; Schema: public; Owner: postgres
+-- Data for Name: mapped_exams; Type: TABLE DATA; Schema: public; Owner: myuser
 --
 
-COPY public.mapped_exams (id, application_id, exam_code, mapped_exam_code) FROM stdin;
+COPY public.mapped_exams (id, application_id, date_passed, grade, status, decision_date, notes, previous_id, host_exam_id, sending_exam_id) FROM stdin;
 \.
 
 
 --
--- Data for Name: partner_institution; Type: TABLE DATA; Schema: public; Owner: postgres
+-- Data for Name: partner_institution; Type: TABLE DATA; Schema: public; Owner: myuser
 --
 
 COPY public.partner_institution (id, id_institution, id_partner_institution) FROM stdin;
@@ -363,15 +427,15 @@ COPY public.partner_institution (id, id_institution, id_partner_institution) FRO
 
 
 --
--- Data for Name: uploaded_documents; Type: TABLE DATA; Schema: public; Owner: postgres
+-- Data for Name: uploaded_documents; Type: TABLE DATA; Schema: public; Owner: myuser
 --
 
-COPY public.uploaded_documents (id, document_type, file_path, user_id, application_id) FROM stdin;
+COPY public.uploaded_documents (id, document_type, file_path, user_id, application_id, date_updated, status, decision_date, notes) FROM stdin;
 \.
 
 
 --
--- Data for Name: users; Type: TABLE DATA; Schema: public; Owner: postgres
+-- Data for Name: users; Type: TABLE DATA; Schema: public; Owner: myuser
 --
 
 COPY public.users (id, email, password_hash, role, firstname, lastname, id_institution) FROM stdin;
@@ -477,49 +541,64 @@ COPY public.users (id, email, password_hash, role, firstname, lastname, id_insti
 
 
 --
--- Name: applications_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+-- Name: applications_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
 SELECT pg_catalog.setval('public.applications_id_seq', 1, false);
 
 
 --
--- Name: institutions_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+-- Name: exams_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
+--
+
+SELECT pg_catalog.setval('public.exams_id_seq', 1, false);
+
+
+--
+-- Name: institutions_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
 SELECT pg_catalog.setval('public.institutions_id_seq', 1, false);
 
 
 --
--- Name: mapped_exams_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+-- Name: mapped_exams_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
 SELECT pg_catalog.setval('public.mapped_exams_id_seq', 1, false);
 
 
 --
--- Name: partner_institution_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+-- Name: partner_institution_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
 SELECT pg_catalog.setval('public.partner_institution_id_seq', 1, false);
 
 
 --
--- Name: uploaded_documents_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+-- Name: uploaded_documents_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
 SELECT pg_catalog.setval('public.uploaded_documents_id_seq', 1, false);
 
 
 --
--- Name: users_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+-- Name: users_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
 SELECT pg_catalog.setval('public.users_id_seq', 98, true);
 
 
 --
--- Name: applications applications_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: alembic_version alembic_version_pkc; Type: CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.alembic_version
+    ADD CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num);
+
+
+--
+-- Name: applications applications_pkey; Type: CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.applications
@@ -527,15 +606,23 @@ ALTER TABLE ONLY public.applications
 
 
 --
--- Name: exams exams_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: exams exams_code_id_institution_key; Type: CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.exams
-    ADD CONSTRAINT exams_pkey PRIMARY KEY (code);
+    ADD CONSTRAINT exams_code_id_institution_key UNIQUE (code, id_institution);
 
 
 --
--- Name: institutions institutions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: exams exams_pkey; Type: CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.exams
+    ADD CONSTRAINT exams_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: institutions institutions_pkey; Type: CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.institutions
@@ -543,7 +630,15 @@ ALTER TABLE ONLY public.institutions
 
 
 --
--- Name: mapped_exams mapped_exams_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: mapped_exams mapped_exams_application_id_host_exam_id_sending_exam_id_key; Type: CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.mapped_exams
+    ADD CONSTRAINT mapped_exams_application_id_host_exam_id_sending_exam_id_key UNIQUE (application_id, host_exam_id, sending_exam_id);
+
+
+--
+-- Name: mapped_exams mapped_exams_pkey; Type: CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.mapped_exams
@@ -551,7 +646,15 @@ ALTER TABLE ONLY public.mapped_exams
 
 
 --
--- Name: partner_institution partner_institution_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: partner_institution partner_institution_id_institution_id_partner_institution_key; Type: CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.partner_institution
+    ADD CONSTRAINT partner_institution_id_institution_id_partner_institution_key UNIQUE (id_institution, id_partner_institution);
+
+
+--
+-- Name: partner_institution partner_institution_pkey; Type: CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.partner_institution
@@ -559,7 +662,7 @@ ALTER TABLE ONLY public.partner_institution
 
 
 --
--- Name: uploaded_documents uploaded_documents_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: uploaded_documents uploaded_documents_pkey; Type: CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.uploaded_documents
@@ -567,7 +670,7 @@ ALTER TABLE ONLY public.uploaded_documents
 
 
 --
--- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.users
@@ -575,7 +678,15 @@ ALTER TABLE ONLY public.users
 
 
 --
--- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: users users_id_id_institution_key; Type: CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_id_id_institution_key UNIQUE (id, id_institution);
+
+
+--
+-- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.users
@@ -583,104 +694,120 @@ ALTER TABLE ONLY public.users
 
 
 --
--- Name: applications applications_host_institution_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: applications applications_host_institution_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.applications
-    ADD CONSTRAINT applications_host_institution_fkey FOREIGN KEY (host_institution) REFERENCES public.institutions(id);
+    ADD CONSTRAINT applications_host_institution_fkey FOREIGN KEY (host_institution) REFERENCES public.institutions(id) ON UPDATE CASCADE ON DELETE RESTRICT;
 
 
 --
--- Name: applications applications_sending_institution_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.applications
-    ADD CONSTRAINT applications_sending_institution_fkey FOREIGN KEY (sending_institution) REFERENCES public.institutions(id);
-
-
---
--- Name: applications applications_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: applications applications_referent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.applications
-    ADD CONSTRAINT applications_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
+    ADD CONSTRAINT applications_referent_id_fkey FOREIGN KEY (referent_id) REFERENCES public.users(id) ON UPDATE CASCADE ON DELETE SET NULL;
 
 
 --
--- Name: exams exams_id_institution_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: applications applications_sending_institution_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.applications
+    ADD CONSTRAINT applications_sending_institution_fkey FOREIGN KEY (sending_institution) REFERENCES public.institutions(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: applications applications_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.applications
+    ADD CONSTRAINT applications_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- Name: applications applications_user_id_sending_institution_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.applications
+    ADD CONSTRAINT applications_user_id_sending_institution_fkey FOREIGN KEY (user_id, sending_institution) REFERENCES public.users(id, id_institution);
+
+
+--
+-- Name: exams exams_id_institution_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.exams
-    ADD CONSTRAINT exams_id_institution_fkey FOREIGN KEY (id_institution) REFERENCES public.institutions(id);
+    ADD CONSTRAINT exams_id_institution_fkey FOREIGN KEY (id_institution) REFERENCES public.institutions(id) ON UPDATE CASCADE ON DELETE RESTRICT;
 
 
 --
--- Name: mapped_exams mapped_exams_application_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.mapped_exams
-    ADD CONSTRAINT mapped_exams_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.applications(id);
-
-
---
--- Name: mapped_exams mapped_exams_exam_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: mapped_exams mapped_exams_application_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.mapped_exams
-    ADD CONSTRAINT mapped_exams_exam_code_fkey FOREIGN KEY (exam_code) REFERENCES public.exams(code);
+    ADD CONSTRAINT mapped_exams_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.applications(id) ON UPDATE CASCADE ON DELETE CASCADE;
 
 
 --
--- Name: mapped_exams mapped_exams_mapped_exam_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: mapped_exams mapped_exams_host_exam_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.mapped_exams
-    ADD CONSTRAINT mapped_exams_mapped_exam_code_fkey FOREIGN KEY (mapped_exam_code) REFERENCES public.exams(code);
+    ADD CONSTRAINT mapped_exams_host_exam_id_fkey FOREIGN KEY (host_exam_id) REFERENCES public.exams(id) ON UPDATE CASCADE ON DELETE RESTRICT;
 
 
 --
--- Name: partner_institution partner_institution_id_institution_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: mapped_exams mapped_exams_sending_exam_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.mapped_exams
+    ADD CONSTRAINT mapped_exams_sending_exam_id_fkey FOREIGN KEY (sending_exam_id) REFERENCES public.exams(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: partner_institution partner_institution_id_institution_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.partner_institution
-    ADD CONSTRAINT partner_institution_id_institution_fkey FOREIGN KEY (id_institution) REFERENCES public.institutions(id);
+    ADD CONSTRAINT partner_institution_id_institution_fkey FOREIGN KEY (id_institution) REFERENCES public.institutions(id) ON UPDATE CASCADE ON DELETE CASCADE;
 
 
 --
--- Name: partner_institution partner_institution_id_partner_institution_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: partner_institution partner_institution_id_partner_institution_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.partner_institution
-    ADD CONSTRAINT partner_institution_id_partner_institution_fkey FOREIGN KEY (id_partner_institution) REFERENCES public.institutions(id);
+    ADD CONSTRAINT partner_institution_id_partner_institution_fkey FOREIGN KEY (id_partner_institution) REFERENCES public.institutions(id) ON UPDATE CASCADE ON DELETE CASCADE;
 
 
 --
--- Name: uploaded_documents uploaded_documents_application_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.uploaded_documents
-    ADD CONSTRAINT uploaded_documents_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.applications(id);
-
-
---
--- Name: uploaded_documents uploaded_documents_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: uploaded_documents uploaded_documents_application_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.uploaded_documents
-    ADD CONSTRAINT uploaded_documents_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
+    ADD CONSTRAINT uploaded_documents_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.applications(id) ON UPDATE CASCADE ON DELETE CASCADE;
 
 
 --
--- Name: users users_id_institution_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: uploaded_documents uploaded_documents_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.uploaded_documents
+    ADD CONSTRAINT uploaded_documents_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- Name: users users_id_institution_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.users
-    ADD CONSTRAINT users_id_institution_fkey FOREIGN KEY (id_institution) REFERENCES public.institutions(id);
+    ADD CONSTRAINT users_id_institution_fkey FOREIGN KEY (id_institution) REFERENCES public.institutions(id) ON UPDATE CASCADE ON DELETE RESTRICT;
 
 
 --
 -- PostgreSQL database dump complete
 --
 
-\unrestrict cDpeYIQswHUyul7hcIbNaDXa7aYfGbEdlMhWsuRpyCD5qgyUBEANUGMd4nL2C3a
+\unrestrict Z0v90aCk60nHS47fOAO3QdbhVZFoVW44PnynVUAAzfCYUcFvrVsrAQKF71GeTxv
 

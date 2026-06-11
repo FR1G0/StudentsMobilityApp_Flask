@@ -10,6 +10,23 @@ db = SQLAlchemy()
 
 
 #  user model
+class Institution(db.Model):
+    __tablename__ = 'institutions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    country = db.Column(db.String(255), nullable=False)
+    city = db.Column(db.String(255), nullable=False)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'country': self.country,
+            'city': self.city
+        }
+
+
 class User(db.Model):
     __tablename__ = 'users'
 
@@ -34,23 +51,6 @@ class User(db.Model):
             'firstname': self.firstname,
             'lastname': self.lastname,
             'id_institution': self.id_institution
-        }
-
-
-class Institution(db.Model):
-    __tablename__ = 'institutions'
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255), nullable=False)
-    country = db.Column(db.String(255), nullable=False)
-    city = db.Column(db.String(255), nullable=False)
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'name': self.name,
-            'country': self.country,
-            'city': self.city
         }
 
 
