@@ -1,3 +1,4 @@
 /.env
+/migrations/versions/__pycache__
 /venv
 /routes/__pycache__
