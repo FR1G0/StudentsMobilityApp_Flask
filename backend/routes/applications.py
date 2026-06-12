@@ -1,6 +1,7 @@
-from datetime import datetime
+import os
+from datetime import datetime, date
 
-from flask import Blueprint, jsonify, request, g
+from flask import Blueprint, jsonify, request, g, current_app
 
 from auth import (
     ROLE_OVERSEAS,
@@ -8,11 +9,24 @@ from auth import (
     ROLE_STUDENT,
     custom_jwt_required,
 )
-from models import db, Application
+from models import db, Application, UploadedDocument
 
 applications_blueprint = Blueprint("applications", __name__)
 
 
+UPLOADS_BASE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "uploads",
+    "applications",
+)
+
+
+def _application_upload_dir(application_id):
+    return os.path.join(UPLOADS_BASE_DIR, str(application_id))
+
+
+# NOTE: [GET] /applications
+# returns the list of applications visible to the current user based on role
 @applications_blueprint.route("/applications", methods=["GET"])
 @custom_jwt_required()
 def list_applications():
@@ -31,9 +45,14 @@ def list_applications():
     else:
         return jsonify({"error": "role not authorized"}), 403
 
-    return jsonify([app.to_dict() for app in applications]), 200
+    result = []
+    for app in applications:
+        result.append(app.to_dict())
+    return jsonify(result), 200
 
 
+# NOTE: [PATCH] /applications/:application_id
+# updates fields on an existing application row, scoped by role permissions
 @applications_blueprint.route("/applications/<int:application_id>", methods=["PATCH"])
 @custom_jwt_required()
 def update_application(application_id):
@@ -91,3 +110,271 @@ def update_application(application_id):
 
     db.session.commit()
     return jsonify(application.to_dict()), 200
+
+
+# NOTE: [POST] /application/insert
+# creates a new application row (student only) and prepares its uploads directory
+@applications_blueprint.route("/application/insert", methods=["POST"])
+@custom_jwt_required()
+def insert_application():
+    role = g.current_user_role
+    if role != ROLE_STUDENT:
+        return jsonify({"status": "failed", "error": "role not authorized"}), 403
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "failed", "error": "missing body"}), 400
+
+        new_app = Application(
+            year=data.get("year"),
+            semester=data.get("semester"),
+            status=data.get("status", "created"),
+            notes=data.get("notes", ""),
+            referent_id=data.get("referent_id"),
+            sending_institution=data.get("sending_institution"),
+            host_institution=data.get("host_institution"),
+            user_id=g.current_user_id,
+        )
+        db.session.add(new_app)
+        db.session.commit()
+
+        upload_dir = _application_upload_dir(new_app.id)
+        os.makedirs(upload_dir, exist_ok=True)
+
+        return jsonify({"status": "success", "id": new_app.id}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "failed", "error": str(e)}), 500
+
+
+# NOTE: [POST] /application/update/:id
+# updates the fields of an existing application row using the json body
+@applications_blueprint.route("/application/update/<int:id>", methods=["POST"])
+@custom_jwt_required()
+def post_update_application(id):
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "failed", "error": "missing body"}), 400
+
+        application = Application.query.get(id)
+        if not application:
+            return jsonify({"status": "failed", "error": "application not found"}), 404
+
+        if "year" in data:
+            application.year = data["year"]
+        if "semester" in data:
+            application.semester = data["semester"]
+        if "status" in data:
+            application.status = data["status"]
+        if "notes" in data:
+            application.notes = data["notes"]
+        if "referent_id" in data:
+            application.referent_id = data["referent_id"]
+        if "sending_institution" in data:
+            application.sending_institution = data["sending_institution"]
+        if "host_institution" in data:
+            application.host_institution = data["host_institution"]
+        if "date_arrived" in data:
+            value = data["date_arrived"]
+            if value is None:
+                application.date_arrived = None
+            else:
+                application.date_arrived = datetime.fromisoformat(value).date()
+        if "date_departure" in data:
+            value = data["date_departure"]
+            if value is None:
+                application.date_departure = None
+            else:
+                application.date_departure = datetime.fromisoformat(value).date()
+
+        db.session.commit()
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "failed", "error": str(e)}), 500
+
+
+# NOTE: [POST] /application/delete/:id
+# deletes the application row identified by :id (student and staff only)
+@applications_blueprint.route("/application/delete/<int:id>", methods=["POST"])
+@custom_jwt_required()
+def delete_application(id):
+    role = g.current_user_role
+    if role not in {ROLE_STUDENT, ROLE_OVERSEAS}:
+        return jsonify({"status": "failed", "error": "role not authorized"}), 403
+
+    try:
+        application = Application.query.get(id)
+        if not application:
+            return jsonify({"status": "failed", "error": "application not found"}), 404
+
+        if role == ROLE_STUDENT and application.user_id != g.current_user_id:
+            return jsonify({"status": "failed", "error": "cannot delete this application"}), 403
+
+        db.session.delete(application)
+        db.session.commit()
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "failed", "error": str(e)}), 500
+
+
+# NOTE: [GET] /application/info/semester
+# returns the list of allowed semester values
+# for frontend
+@applications_blueprint.route("/application/info/semester", methods=["GET"])
+def get_application_semesters():
+    semesters = ["first", "second", "full"]
+    return jsonify(semesters), 200
+
+
+# NOTE: [GET] /application/info/status
+# returns the list of allowed application status values
+# for frontend
+@applications_blueprint.route("/application/info/status", methods=["GET"])
+def get_application_statuses():
+    statuses = [
+        "created",
+        "learning_agreement_pending",
+        "pre_departure_completed",
+        "mobility_ongoing",
+        "exam_recognition",
+        "closed",
+    ]
+    return jsonify(statuses), 200
+
+
+# NOTE: [GET] /application/info/academic_years
+# returns the list of academic years starting from the current year for 5 years
+@applications_blueprint.route("/application/info/academic_years", methods=["GET"])
+def get_application_academic_years():
+    current_year = date.today().year
+    years = []
+    i = 0
+    while i < 5:
+        years.append(current_year + i)
+        i = i + 1
+    return jsonify(years), 200
+
+
+# NOTE: [POST] /application/documents/:id
+# returns the list of uploaded documents associated to the given application
+@applications_blueprint.route("/application/documents/<int:id>", methods=["POST"])
+@custom_jwt_required()
+def list_application_documents(id):
+    try:
+        documents = UploadedDocument.query.filter_by(application_id=id).all()
+        result = []
+        for doc in documents:
+            result.append({
+                "id": doc.id,
+                "document_type": doc.document_type,
+                "file_path": doc.file_path,
+                "date_updated": doc.date_updated.isoformat() if doc.date_updated else None,
+                "status": doc.status,
+                "decision_date": doc.decision_date.isoformat() if doc.decision_date else None,
+                "notes": doc.notes,
+                "user_id": doc.user_id,
+                "application_id": doc.application_id,
+            })
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# NOTE: [POST] /application/document/insert
+# inserts a new uploaded_document row using the json body data
+@applications_blueprint.route("/application/document/insert", methods=["POST"])
+@custom_jwt_required()
+def insert_application_document():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "failed", "error": "missing body"}), 400
+
+        new_doc = UploadedDocument(
+            document_type=data.get("document_type"),
+            file_path=data.get("file_path"),
+            user_id=data.get("user_id", g.current_user_id),
+            application_id=data.get("application_id"),
+            notes=data.get("notes", ""),
+        )
+        db.session.add(new_doc)
+        db.session.commit()
+        return jsonify({"status": "success", "id": new_doc.id}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "failed", "error": str(e)}), 500
+
+
+# NOTE: [POST] /application/document/upload
+# uploads a file from form-data ("myfile") into uploads/applications/:application_id/
+@applications_blueprint.route("/application/document/upload", methods=["POST"])
+@custom_jwt_required()
+def upload_application_document():
+    try:
+        application_id = request.form.get("application_id")
+        if not application_id:
+            return jsonify({"status": "failed", "error": "missing application_id"}), 400
+
+        uploaded_file = request.files.get("myfile")
+        if not uploaded_file or uploaded_file.filename == "":
+            return jsonify({"status": "failed", "error": "missing file"}), 400
+
+        upload_dir = _application_upload_dir(application_id)
+        os.makedirs(upload_dir, exist_ok=True)
+
+        filename = os.path.basename(uploaded_file.filename)
+        destination = os.path.join(upload_dir, filename)
+        uploaded_file.save(destination)
+
+        return jsonify({"status": "success", "file_path": destination}), 200
+    except Exception as e:
+        return jsonify({"status": "failed", "error": str(e)}), 500
+
+
+# NOTE: [POST] /application/document/:id/delete
+# deletes the uploaded file from disk and removes the related document row
+@applications_blueprint.route("/application/document/<int:id>/delete", methods=["POST"])
+@custom_jwt_required()
+def delete_application_document(id):
+    try:
+        doc = UploadedDocument.query.get(id)
+        if not doc:
+            return jsonify({"status": "failed", "error": "document not found"}), 404
+
+        file_path = doc.file_path
+        application_id = doc.application_id
+
+        if file_path and os.path.isfile(file_path):
+            os.remove(file_path)
+        else:
+            # if file_path is just the filename, try the application uploads dir
+            candidate = os.path.join(_application_upload_dir(application_id), os.path.basename(file_path or ""))
+            if os.path.isfile(candidate):
+                os.remove(candidate)
+
+        db.session.delete(doc)
+        db.session.commit()
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "failed", "error": str(e)}), 500
+
+
+# NOTE: [GET] /application/document/info/type
+# returns the list of allowed document types
+@applications_blueprint.route("/application/document/info/type", methods=["GET"])
+def get_document_types():
+    types = ["learning_agreement", "transcript"]
+    return jsonify(types), 200
+
+
+# NOTE: [GET] /application/document/info/status
+# returns the list of allowed document status values
+@applications_blueprint.route("/application/document/info/status", methods=["GET"])
+def get_document_statuses():
+    statuses = ["pending", "approved", "rejected"]
+    return jsonify(statuses), 200
