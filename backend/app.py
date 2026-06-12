@@ -13,6 +13,8 @@ from models import db
 from routes.users import users_blueprint
 from routes.applications import applications_blueprint
 from routes.api import api_blueprint
+from routes.exams import exams_blueprint
+from routes.institutions import institutions_blueprint
 
 # load env variables from .env file
 load_dotenv()
@@ -31,6 +33,8 @@ migrate = Migrate(app, db)
 # register external ruotes
 app.register_blueprint(users_blueprint, url_prefix="/api")
 app.register_blueprint(applications_blueprint, url_prefix="/api")
+app.register_blueprint(exams_blueprint, url_prefix="/api")
+app.register_blueprint(institutions_blueprint, url_prefix="/api")
 app.register_blueprint(api_blueprint)
 
 @app.route("/")
