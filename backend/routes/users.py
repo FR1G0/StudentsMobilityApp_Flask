@@ -9,6 +9,8 @@ from auth import custom_jwt_required, _get_jwt_secret
 users_blueprint = Blueprint("users", __name__)
 
 
+# NOTE: [POST] /login
+# authenticates a user and returns a JWT token along with the user info
 @users_blueprint.route("/login", methods=["POST"])
 def login():
     data = request.get_json()
@@ -35,16 +37,23 @@ def login():
     return jsonify({"token": token, "user": user.to_dict()}), 200
 
 
+# NOTE: [GET] /user
+# returns the list of all the users inside the database
 @users_blueprint.route("/user", methods=["GET"])
 @custom_jwt_required()
 def all_users():
     try:
         users = User.query.all()
-        return jsonify([user.to_dict() for user in users]), 200
+        result = []
+        for user in users:
+            result.append(user.to_dict())
+        return jsonify(result), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
+# NOTE: [GET] /user/:id
+# returns the information of the row users using the users' id
 @users_blueprint.route("/user/<int:id>", methods=["GET"])
 @custom_jwt_required()
 def get_user(id):
@@ -57,6 +66,8 @@ def get_user(id):
         return jsonify({"error": str(e)}), 500
 
 
+# NOTE: [GET] /user/name:<name>
+# returns the list of users whose firstname matches the given name
 @users_blueprint.route("/user/name:<string:name>", methods=["GET"])
 @custom_jwt_required()
 def get_user_by_name(name):
@@ -72,25 +83,22 @@ def get_user_by_name(name):
         if not result:
             return jsonify({"error": "user not found"}), 404
 
-        return (
-            jsonify(
-                [
-                    {
-                        "id": row["id"],
-                        "email": row["email"],
-                        "role": row["role"],
-                        "firstname": row["firstname"],
-                        "lastname": row["lastname"],
-                    }
-                    for row in result
-                ]
-            ),
-            200,
-        )
+        users = []
+        for row in result:
+            users.append({
+                "id": row["id"],
+                "email": row["email"],
+                "role": row["role"],
+                "firstname": row["firstname"],
+                "lastname": row["lastname"],
+            })
+        return jsonify(users), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
+# NOTE: [GET] /user/:name/:surname
+# returns a single user matching firstname and lastname
 @users_blueprint.route("/user/<string:name>/<string:surname>", methods=["GET"])
 @custom_jwt_required()
 def get_user_by_email(name, surname):
@@ -103,3 +111,87 @@ def get_user_by_email(name, surname):
         return jsonify(user.to_dict()), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# NOTE: [POST] /user/insert
+# inserts a new user row into the database using the json body data
+@users_blueprint.route("/user/insert", methods=["POST"])
+@custom_jwt_required()
+def insert_user():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "failed", "error": "missing body"}), 400
+
+        new_user = User(
+            email=data.get("email"),
+            password_hash=data.get("password_hash"),
+            role=data.get("role"),
+            firstname=data.get("firstname"),
+            lastname=data.get("lastname"),
+            id_institution=data.get("id_institution"),
+        )
+        db.session.add(new_user)
+        db.session.commit()
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "failed", "error": str(e)}), 500
+
+
+# NOTE: [POST] /user/update
+# updates an existing user row using the json body data (must contain "id")
+@users_blueprint.route("/user/update", methods=["POST"])
+@custom_jwt_required()
+def update_user():
+    try:
+        data = request.get_json()
+        if not data or not data.get("id"):
+            return jsonify({"status": "failed", "error": "missing id"}), 400
+
+        user = User.query.get(data["id"])
+        if not user:
+            return jsonify({"status": "failed", "error": "user not found"}), 404
+
+        if "email" in data:
+            user.email = data["email"]
+        if "password_hash" in data:
+            user.password_hash = data["password_hash"]
+        if "firstname" in data:
+            user.firstname = data["firstname"]
+        if "lastname" in data:
+            user.lastname = data["lastname"]
+        if "id_institution" in data:
+            user.id_institution = data["id_institution"]
+
+        db.session.commit()
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "failed", "error": str(e)}), 500
+
+
+# NOTE: [POST] /user/delete/:id
+# deletes the user row identified by :id
+# WARNING: must be protected
+@users_blueprint.route("/user/delete/<int:id>", methods=["POST"])
+@custom_jwt_required()
+def delete_user(id):
+    try:
+        user = User.query.get(id)
+        if not user:
+            return jsonify({"status": "failed", "error": "user not found"}), 404
+        db.session.delete(user)
+        db.session.commit()
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "failed", "error": str(e)}), 500
+
+
+# NOTE: [GET] /user/info/role
+# returns the list of allowed user roles
+@users_blueprint.route("/user/info/role", methods=["GET"])
+def get_user_roles():
+    roles = ["student", "referent", "staff"]
+    return jsonify(roles), 200
