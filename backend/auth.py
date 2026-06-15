@@ -40,7 +40,7 @@ def custom_jwt_required():
             except jwt.InvalidTokenError:
                 return jsonify({"error": "invalid token"}), 401
 
-            user_id = payload.get("sub") or payload.get("user_id") or payload.get("id")
+            user_id = payload.get("sub")
             try:
                 user_id = int(user_id)
             except (TypeError, ValueError):
