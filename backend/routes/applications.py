@@ -290,6 +290,10 @@ def list_application_documents(id):
 @custom_jwt_required()
 def insert_application_document():
     try:
+        role = g.current_user_role
+        if role != ROLE_STUDENT:
+            return jsonify({"status": "failed", "error": "role not authorized"}), 403
+
         data = request.get_json()
         if not data:
             return jsonify({"status": "failed", "error": "missing body"}), 400
@@ -315,6 +319,10 @@ def insert_application_document():
 @custom_jwt_required()
 def upload_application_document():
     try:
+        role = g.current_user_role
+        if role != ROLE_STUDENT:
+            return jsonify({"status": "failed", "error": "role not authorized"}), 403
+
         application_id = request.form.get("application_id")
         if not application_id:
             return jsonify({"status": "failed", "error": "missing application_id"}), 400

@@ -1,9 +1,14 @@
 from datetime import datetime, timezone
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, g
 from sqlalchemy import text
 
-from auth import custom_jwt_required
+from auth import (
+    ROLE_OVERSEAS,
+    ROLE_REFERENT,
+    ROLE_STUDENT,
+    custom_jwt_required,
+)
 from models import db, Exam, MappedExam
 
 exams_blueprint = Blueprint("exams", __name__)
@@ -11,11 +16,11 @@ exams_blueprint = Blueprint("exams", __name__)
 
 # NOTE: [GET] /exam/list/:id_institution
 # returns the list of exam rows that belong to the given institution
-@exams_blueprint.route("/exam/list/<int:id_institution>", methods=["GET"])
+@exams_blueprint.route("/exam/list/<int:id_inst>", methods=["GET"])
 @custom_jwt_required()
-def list_exams_by_institution(id_institution):
+def list_exams_by_institution(id_inst):
     try:
-        exams = Exam.query.filter_by(id_institution=id_institution).all()
+        exams = Exam.query.filter_by(id_institution=id_inst).all()
         result = []
         for exam in exams:
             result.append(exam.to_dict())
@@ -44,6 +49,10 @@ def get_exam(id):
 @custom_jwt_required()
 def insert_exam():
     try:
+        role = g.current_user_role
+        if role != ROLE_OVERSEAS:
+            return jsonify({"status": "failed", "error": "role not authorized"}), 403
+
         data = request.get_json()
         if not data:
             return jsonify({"status": "failed", "error": "missing body"}), 400
@@ -68,6 +77,10 @@ def insert_exam():
 @custom_jwt_required()
 def delete_exam(id):
     try:
+        role = g.current_user_role
+        if role != ROLE_OVERSEAS:
+            return jsonify({"status": "failed", "error": "role not authorized"}), 403
+
         exam = Exam.query.get(id)
         if not exam:
             return jsonify({"status": "failed", "error": "exam not found"}), 404
@@ -139,6 +152,10 @@ def update_mapped_exam_status(id):
 @custom_jwt_required()
 def set_mapped_exam_passed(id):
     try:
+        role = g.current_user_role
+        if role not in {ROLE_REFERENT, ROLE_OVERSEAS}:
+            return jsonify({"status": "failed", "error": "role not authorized"}), 403
+
         data = request.get_json()
         if not data:
             return jsonify({"status": "failed", "error": "missing body"}), 400
