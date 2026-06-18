@@ -1,0 +1,68 @@
+# docker-compose.yml
+# Mirrors run_project.sh: builds and runs the database, backend and frontend
+# containers on a shared network so they can talk to each other.
+
+services:
+
+  # 1. Database (postgres) - built from the root Dockerfile
+  database:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: overseas-db
+    container_name: overseas-db-container
+    networks:
+      - overseas-network
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    # wait until postgres is ready before backend runs migrations
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myuser -d overseas_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # 2. Backend (flask + sqlalchemy) - built from backend/Dockerfile
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: overseas-backend
+    container_name: overseas-backend-container
+    networks:
+      - overseas-network
+    ports:
+      - "5000:5000"
+    environment:
+      - DATABASE_URL=postgresql://myuser:123@overseas-db-container:5432/overseas_db
+    depends_on:
+      database:
+        condition: service_healthy
+
+  # 3. Frontend (angularjs) - built from frontend/Dockerfile
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: overseas-frontend
+    container_name: overseas-frontend-container
+    networks:
+      - overseas-network
+    ports:
+      - "4200:4200"
+    depends_on:
+      - backend
+
+# shared network so the containers can reach each other by name.
+# marked external so compose reuses an already-existing overseas-network
+# (e.g. one created by run_project.sh) instead of creating its own.
+networks:
+  overseas-network:
+    name: overseas-network
+    external: true
+
+# named volume to persist the postgres data (replaces VOLUME in the db image)
+volumes:
+  db_data:
