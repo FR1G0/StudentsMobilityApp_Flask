@@ -9,7 +9,7 @@ from auth import (
     ROLE_STUDENT,
     custom_jwt_required,
 )
-from models import db, Application, UploadedDocument
+from models import db, Application, UploadedDocument, MappedExam
 
 applications_blueprint = Blueprint("applications", __name__)
 
@@ -370,6 +370,32 @@ def delete_application_document(id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": "failed", "error": str(e)}), 500
+
+
+# NOTE: [GET] /application/exams_mapping/:application_id
+# returns the list of mapped_exams rows associated to the given application
+@applications_blueprint.route("/application/exams_mapping/<int:application_id>", methods=["GET"])
+@custom_jwt_required()
+def list_application_exam_mappings(application_id):
+    try:
+        mappings = MappedExam.query.filter_by(application_id=application_id).all()
+        result = []
+        for mapping in mappings:
+            result.append({
+                "id": mapping.id,
+                "application_id": mapping.application_id,
+                "date_passed": mapping.date_passed.isoformat() if mapping.date_passed else None,
+                "grade": mapping.grade,
+                "status": mapping.status,
+                "decision_date": mapping.decision_date.isoformat() if mapping.decision_date else None,
+                "notes": mapping.notes,
+                "previous_id": mapping.previous_id,
+                "host_exam_id": mapping.host_exam_id,
+                "sending_exam_id": mapping.sending_exam_id,
+            })
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # NOTE: [GET] /application/document/info/type
