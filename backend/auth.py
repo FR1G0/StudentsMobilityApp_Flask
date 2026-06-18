@@ -15,6 +15,26 @@ def normalize_role(role):
     return role.strip().lower().replace(" ", "_")
 
 
+# Gate a route to a set of roles. Must be stacked BELOW custom_jwt_required
+# (i.e. custom_jwt_required on top), since it reads g.current_user_role.
+def require_roles(*allowed):
+    allowed_roles = {normalize_role(r) for r in allowed}
+
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            role = getattr(g, "current_user_role", None)
+            if role is None:
+                return jsonify({"error": "authentication required"}), 401
+            if role not in allowed_roles:
+                return jsonify({"error": "role not authorized"}), 403
+            return f(*args, **kwargs)
+
+        return decorated_function
+
+    return decorator
+
+
 def _get_jwt_secret():
     return os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY")
 

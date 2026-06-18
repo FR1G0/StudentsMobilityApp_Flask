@@ -37,6 +37,10 @@ services:
       - "5000:5000"
     environment:
       - DATABASE_URL=postgresql://myuser:123@overseas-db-container:5432/overseas_db
+      # JWT/session secret. Set in host shell or a root .env (compose auto-loads it).
+      # Falls back to a dev default ONLY so local up doesn't 500 — override in prod.
+      - SECRET_KEY=${SECRET_KEY:-supersecret}
+      - JWT_SECRET=${JWT_SECRET:-}
     depends_on:
       database:
         condition: service_healthy
@@ -55,13 +59,11 @@ services:
     depends_on:
       - backend
 
-# shared network so the containers can reach each other by name.
-# marked external so compose reuses an already-existing overseas-network
-# (e.g. one created by run_project.sh) instead of creating its own.
+# shared network so the containers can reach each other by service name.
+# compose-owned: created on `up`, removed on `down`. Self-contained, no
+# pre-existing network required (`docker compose up` works from a clean clone).
 networks:
   overseas-network:
-    name: overseas-network
-    external: true
 
 # named volume to persist the postgres data (replaces VOLUME in the db image)
 volumes:
