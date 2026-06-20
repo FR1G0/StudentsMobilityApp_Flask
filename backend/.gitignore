@@ -2,3 +2,4 @@
 /migrations/versions/__pycache__
 /venv
 /routes/__pycache__
+/uploads/applications/*
