@@ -1,9 +1,10 @@
-from flask import Blueprint, jsonify, request, g
+from flask import Blueprint, jsonify, request
 from sqlalchemy import text
 
 from auth import (
     ROLE_OVERSEAS,
     custom_jwt_required,
+    require_roles,
 )
 from models import db, Institution, PartnerInstitution
 
@@ -14,11 +15,8 @@ institutions_blueprint = Blueprint("institutions", __name__)
 # inserts a new institution row (staff only)
 @institutions_blueprint.route("/institution/insert", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_OVERSEAS)
 def insert_institution():
-    role = g.current_user_role
-    if role != ROLE_OVERSEAS:
-        return jsonify({"status": "failed", "error": "role not authorized"}), 403
-
     try:
         data = request.get_json()
         if not data:
@@ -41,11 +39,8 @@ def insert_institution():
 # updates an existing institution row (staff only)
 @institutions_blueprint.route("/institution/update/<int:id>", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_OVERSEAS)
 def update_institution(id):
-    role = g.current_user_role
-    if role != ROLE_OVERSEAS:
-        return jsonify({"status": "failed", "error": "role not authorized"}), 403
-
     try:
         data = request.get_json()
         if not data:
@@ -73,11 +68,8 @@ def update_institution(id):
 # deletes the institution row identified by :id (staff only)
 @institutions_blueprint.route("/institution/delete/<int:id>", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_OVERSEAS)
 def delete_institution(id):
-    role = g.current_user_role
-    if role != ROLE_OVERSEAS:
-        return jsonify({"status": "failed", "error": "role not authorized"}), 403
-
     try:
         inst = Institution.query.get(id)
         if not inst:
@@ -261,6 +253,7 @@ def get_institution_exams(id):
 # inserts a new partner_institution row to link two institutions
 @institutions_blueprint.route("/institution/partner/insert", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_OVERSEAS)
 def insert_partner_institution():
     try:
         data = request.get_json()
@@ -283,6 +276,7 @@ def insert_partner_institution():
 # deletes a partner_institution mapping using the row id
 @institutions_blueprint.route("/institution/partner/<int:id>/delete", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_OVERSEAS)
 def delete_partner_institution(id):
     try:
         partner = PartnerInstitution.query.get(id)
@@ -300,6 +294,7 @@ def delete_partner_institution(id):
 # updates an existing partner_institution mapping using the row id
 @institutions_blueprint.route("/institution/partner/<int:id>/update", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_OVERSEAS)
 def update_partner_institution(id):
     try:
         data = request.get_json()

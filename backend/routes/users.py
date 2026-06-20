@@ -2,9 +2,10 @@ import datetime
 import jwt
 from flask import Blueprint, jsonify, request, current_app
 from sqlalchemy import text
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from models import User, db
-from auth import custom_jwt_required, _get_jwt_secret
+from auth import ROLE_OVERSEAS, custom_jwt_required, require_roles, _get_jwt_secret
 
 users_blueprint = Blueprint("users", __name__)
 
@@ -19,9 +20,8 @@ def login():
 
     user = User.query.filter_by(email=data["email"]).first()
 
-    # NOTE: In real app, use password hashing (e.g., bcrypt)
-    # Here checking against plain password_hash for simplicity
-    if not user or user.password_hash != data["password"]:
+    # password_hash stores a werkzeug hash (pbkdf2). Constant-time verify.
+    if not user or not check_password_hash(user.password_hash, data["password"]):
         return jsonify({"error": "invalid credentials"}), 401
 
     secret = _get_jwt_secret()
@@ -117,15 +117,21 @@ def get_user_by_email(name, surname):
 # inserts a new user row into the database using the json body data
 @users_blueprint.route("/user/insert", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_OVERSEAS)
 def insert_user():
     try:
         data = request.get_json()
         if not data:
             return jsonify({"status": "failed", "error": "missing body"}), 400
 
+        # accept "password" (preferred) or legacy "password_hash" as the raw secret
+        raw_password = data.get("password") or data.get("password_hash")
+        if not raw_password:
+            return jsonify({"status": "failed", "error": "missing password"}), 400
+
         new_user = User(
             email=data.get("email"),
-            password_hash=data.get("password_hash"),
+            password_hash=generate_password_hash(raw_password, method="pbkdf2:sha256"),
             role=data.get("role"),
             firstname=data.get("firstname"),
             lastname=data.get("lastname"),
@@ -143,6 +149,7 @@ def insert_user():
 # updates an existing user row using the json body data (must contain "id")
 @users_blueprint.route("/user/update", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_OVERSEAS)
 def update_user():
     try:
         data = request.get_json()
@@ -155,8 +162,10 @@ def update_user():
 
         if "email" in data:
             user.email = data["email"]
-        if "password_hash" in data:
-            user.password_hash = data["password_hash"]
+        if "password" in data:
+            user.password_hash = generate_password_hash(data["password"], method="pbkdf2:sha256")
+        elif "password_hash" in data:
+            user.password_hash = generate_password_hash(data["password_hash"], method="pbkdf2:sha256")
         if "firstname" in data:
             user.firstname = data["firstname"]
         if "lastname" in data:
@@ -176,6 +185,7 @@ def update_user():
 # WARNING: must be protected
 @users_blueprint.route("/user/delete/<int:id>", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_OVERSEAS)
 def delete_user(id):
     try:
         user = User.query.get(id)

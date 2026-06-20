@@ -8,6 +8,7 @@ from auth import (
     ROLE_REFERENT,
     ROLE_STUDENT,
     custom_jwt_required,
+    require_roles,
 )
 from models import db, Application, UploadedDocument, MappedExam
 
@@ -55,6 +56,7 @@ def list_applications():
 # updates fields on an existing application row, scoped by role permissions
 @applications_blueprint.route("/applications/<int:application_id>", methods=["PATCH"])
 @custom_jwt_required()
+@require_roles(ROLE_STUDENT, ROLE_REFERENT)
 def update_application(application_id):
     user = g.current_user
 
@@ -62,15 +64,12 @@ def update_application(application_id):
     if not application:
         return jsonify({"error": "application not found"}), 404
 
+    # role-level gate handled by @require_roles; below is per-row ownership
     role = g.current_user_role
-    if role == ROLE_OVERSEAS:
-        return jsonify({"error": "overseas staff cannot modify applications"}), 403
     if role == ROLE_STUDENT and application.user_id != user.id:
         return jsonify({"error": "student cannot modify this application"}), 403
     if role == ROLE_REFERENT and application.referent_id != user.id:
         return jsonify({"error": "referent cannot modify this application"}), 403
-    if role not in {ROLE_STUDENT, ROLE_REFERENT}:
-        return jsonify({"error": "role not authorized"}), 403
 
     payload = request.get_json(silent=True)
     if not payload:
@@ -116,11 +115,8 @@ def update_application(application_id):
 # creates a new application row (student only) and prepares its uploads directory
 @applications_blueprint.route("/application/insert", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_STUDENT)
 def insert_application():
-    role = g.current_user_role
-    if role != ROLE_STUDENT:
-        return jsonify({"status": "failed", "error": "role not authorized"}), 403
-
     try:
         data = request.get_json()
         if not data:
@@ -152,6 +148,7 @@ def insert_application():
 # updates the fields of an existing application row using the json body
 @applications_blueprint.route("/application/update/<int:id>", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_STUDENT, ROLE_REFERENT)
 def post_update_application(id):
     try:
         data = request.get_json()
@@ -200,11 +197,9 @@ def post_update_application(id):
 # deletes the application row identified by :id (student and staff only)
 @applications_blueprint.route("/application/delete/<int:id>", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_STUDENT, ROLE_OVERSEAS)
 def delete_application(id):
     role = g.current_user_role
-    if role not in {ROLE_STUDENT, ROLE_OVERSEAS}:
-        return jsonify({"status": "failed", "error": "role not authorized"}), 403
-
     try:
         application = Application.query.get(id)
         if not application:
@@ -288,12 +283,9 @@ def list_application_documents(id):
 # inserts a new uploaded_document row using the json body data
 @applications_blueprint.route("/application/document/insert", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_STUDENT)
 def insert_application_document():
     try:
-        role = g.current_user_role
-        if role != ROLE_STUDENT:
-            return jsonify({"status": "failed", "error": "role not authorized"}), 403
-
         data = request.get_json()
         if not data:
             return jsonify({"status": "failed", "error": "missing body"}), 400
@@ -317,12 +309,9 @@ def insert_application_document():
 # uploads a file from form-data ("myfile") into uploads/applications/:application_id/
 @applications_blueprint.route("/application/document/upload", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_STUDENT)
 def upload_application_document():
     try:
-        role = g.current_user_role
-        if role != ROLE_STUDENT:
-            return jsonify({"status": "failed", "error": "role not authorized"}), 403
-
         application_id = request.form.get("application_id")
         if not application_id:
             return jsonify({"status": "failed", "error": "missing application_id"}), 400

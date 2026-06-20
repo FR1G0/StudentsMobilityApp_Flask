@@ -1,13 +1,13 @@
 from datetime import datetime, timezone
 
-from flask import Blueprint, jsonify, request, g
+from flask import Blueprint, jsonify, request
 from sqlalchemy import text
 
 from auth import (
     ROLE_OVERSEAS,
     ROLE_REFERENT,
-    ROLE_STUDENT,
     custom_jwt_required,
+    require_roles,
 )
 from models import db, Exam, MappedExam
 
@@ -47,12 +47,9 @@ def get_exam(id):
 # inserts a new exam row using the json body data
 @exams_blueprint.route("/exam/insert", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_OVERSEAS)
 def insert_exam():
     try:
-        role = g.current_user_role
-        if role != ROLE_OVERSEAS:
-            return jsonify({"status": "failed", "error": "role not authorized"}), 403
-
         data = request.get_json()
         if not data:
             return jsonify({"status": "failed", "error": "missing body"}), 400
@@ -75,12 +72,9 @@ def insert_exam():
 # deletes the exam row identified by :id
 @exams_blueprint.route("/exam/delete/<int:id>", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_OVERSEAS)
 def delete_exam(id):
     try:
-        role = g.current_user_role
-        if role != ROLE_OVERSEAS:
-            return jsonify({"status": "failed", "error": "role not authorized"}), 403
-
         exam = Exam.query.get(id)
         if not exam:
             return jsonify({"status": "failed", "error": "exam not found"}), 404
@@ -123,6 +117,7 @@ def insert_mapped_exam(application_id):
 # updates the status of the mapped_exam row of given id (e.g. approved/rejected) and decision info
 @exams_blueprint.route("/exam/mapping/update/<int:id>", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_REFERENT, ROLE_OVERSEAS)
 def update_mapped_exam_status(id):
     try:
         data = request.get_json()
@@ -150,12 +145,9 @@ def update_mapped_exam_status(id):
 # registers grade and date_passed on the mapped_exam row of given id
 @exams_blueprint.route("/exam/mapping/passed/<int:id>", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_REFERENT, ROLE_OVERSEAS)
 def set_mapped_exam_passed(id):
     try:
-        role = g.current_user_role
-        if role not in {ROLE_REFERENT, ROLE_OVERSEAS}:
-            return jsonify({"status": "failed", "error": "role not authorized"}), 403
-
         data = request.get_json()
         if not data:
             return jsonify({"status": "failed", "error": "missing body"}), 400
