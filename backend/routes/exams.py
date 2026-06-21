@@ -1,15 +1,16 @@
 from datetime import datetime, timezone
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, g
 from sqlalchemy import text
 
 from auth import (
     ROLE_OVERSEAS,
     ROLE_REFERENT,
+    ROLE_STUDENT,
     custom_jwt_required,
     require_roles,
 )
-from models import db, Exam, MappedExam
+from models import db, Exam, MappedExam, Application, UploadedDocument
 
 exams_blueprint = Blueprint("exams", __name__)
 
@@ -162,7 +163,7 @@ def update_mapped_exam_status(id):
 # registers grade and date_passed on the mapped_exam row of given id
 @exams_blueprint.route("/exam/mapping/passed/<int:id>", methods=["POST"])
 @custom_jwt_required()
-@require_roles(ROLE_REFERENT, ROLE_OVERSEAS)
+@require_roles(ROLE_STUDENT)
 def set_mapped_exam_passed(id):
     try:
         data = request.get_json()
@@ -172,6 +173,25 @@ def set_mapped_exam_passed(id):
         mapping = MappedExam.query.get(id)
         if not mapping:
             return jsonify({"status": "failed", "error": "mapping not found"}), 404
+
+        application = Application.query.get(mapping.application_id)
+        if not application:
+            return jsonify({"status": "failed", "error": "application not found"}), 404
+
+        # only the owning student may enter the grade/date of their own exams
+        if application.user_id != g.current_user_id:
+            return jsonify({"status": "failed", "error": "student cannot modify this exam"}), 403
+
+        # an approved exam is locked: its grade/date cannot be changed anymore
+        if mapping.status == "approved":
+            return jsonify({"status": "failed", "error": "approved exam cannot be modified"}), 403
+
+        # grade/date can be entered only after the Transcript of Records is uploaded
+        transcript_exists = UploadedDocument.query.filter_by(
+            application_id=application.id, document_type="transcript"
+        ).first()
+        if not transcript_exists:
+            return jsonify({"status": "failed", "error": "transcript of records not uploaded yet"}), 400
 
         if "grade" in data:
             mapping.grade = data["grade"]
