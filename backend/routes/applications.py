@@ -394,6 +394,49 @@ def download_application_document(id):
     return send_file(file_path, as_attachment=True, download_name=os.path.basename(file_path))
 
 
+# NOTE: [POST] /application/document/:id/decision
+# referent approves or rejects an uploaded document (learning agreement / transcript),
+# recording a motivation; decision_date is stamped by a DB trigger
+@applications_blueprint.route("/application/document/<int:id>/decision", methods=["POST"])
+@custom_jwt_required()
+@require_roles(ROLE_REFERENT)
+def decide_application_document(id):
+    try:
+        data = request.get_json()
+        if not data or "status" not in data:
+            return jsonify({"status": "failed", "error": "missing status"}), 400
+
+        new_status = data["status"]
+        if new_status not in ("approved", "rejected"):
+            return jsonify({"status": "failed", "error": "status must be approved or rejected"}), 400
+
+        doc = UploadedDocument.query.get(id)
+        if not doc:
+            return jsonify({"status": "failed", "error": "document not found"}), 404
+
+        application = Application.query.get(doc.application_id)
+        if not application:
+            return jsonify({"status": "failed", "error": "application not found"}), 404
+
+        # only the application's referent may decide on its documents
+        if application.referent_id != g.current_user_id:
+            return jsonify({"status": "failed", "error": "referent cannot decide on this document"}), 403
+
+        notes = data.get("notes", "")
+        # a rejection must carry a motivation
+        if new_status == "rejected" and not (notes and notes.strip()):
+            return jsonify({"status": "failed", "error": "rejection requires a motivation"}), 400
+
+        doc.status = new_status
+        doc.notes = notes
+        # decision_date is set by the set_document_decision_date trigger
+        db.session.commit()
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "failed", "error": str(e)}), 400
+
+
 # NOTE: [GET] /application/exams_mapping/:application_id
 # returns the list of mapped_exams rows associated to the given application
 @applications_blueprint.route("/application/exams_mapping/<int:application_id>", methods=["GET"])
