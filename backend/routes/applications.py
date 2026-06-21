@@ -7,6 +7,7 @@ from auth import (
     ROLE_OVERSEAS,
     ROLE_REFERENT,
     ROLE_STUDENT,
+    can_view_application,
     custom_jwt_required,
     require_roles,
 )
@@ -24,21 +25,6 @@ UPLOADS_BASE_DIR = os.path.join(
 
 def _application_upload_dir(application_id):
     return os.path.join(UPLOADS_BASE_DIR, str(application_id))
-
-
-# Authorization rule shared by the document routes: who may access an application
-# (and therefore its uploaded files).
-#   student  -> only their own applications
-#   referent -> only applications they are referent for
-#   overseas -> only applications hosted by their institution
-def _can_view_application(application, user, role):
-    if role == ROLE_STUDENT:
-        return application.user_id == user.id
-    if role == ROLE_REFERENT:
-        return application.referent_id == user.id
-    if role == ROLE_OVERSEAS:
-        return application.host_institution == user.id_institution
-    return False
 
 
 # NOTE: [GET] /applications
@@ -296,7 +282,7 @@ def list_application_documents(id):
         application = Application.query.get(id)
         if not application:
             return jsonify({"error": "application not found"}), 404
-        if not _can_view_application(application, g.current_user, g.current_user_role):
+        if not can_view_application(application, g.current_user, g.current_user_role):
             return jsonify({"error": "not authorized for this application"}), 403
 
         documents = UploadedDocument.query.filter_by(application_id=id).all()
@@ -338,7 +324,7 @@ def insert_application_document():
         application = Application.query.get(data.get("application_id"))
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
-        if not _can_view_application(application, g.current_user, g.current_user_role):
+        if not can_view_application(application, g.current_user, g.current_user_role):
             return jsonify(
                 {"status": "failed", "error": "cannot upload to this application"}
             ), 403
@@ -372,7 +358,7 @@ def upload_application_document():
         application = Application.query.get(application_id)
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
-        if not _can_view_application(application, g.current_user, g.current_user_role):
+        if not can_view_application(application, g.current_user, g.current_user_role):
             return jsonify(
                 {"status": "failed", "error": "cannot upload to this application"}
             ), 403
@@ -407,7 +393,7 @@ def delete_application_document(id):
         application = Application.query.get(doc.application_id)
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
-        if not _can_view_application(application, g.current_user, g.current_user_role):
+        if not can_view_application(application, g.current_user, g.current_user_role):
             return jsonify(
                 {"status": "failed", "error": "cannot delete this document"}
             ), 403
@@ -448,7 +434,7 @@ def download_application_document(id):
     application = Application.query.get(doc.application_id)
     if not application:
         return jsonify({"error": "application not found"}), 404
-    if not _can_view_application(application, g.current_user, g.current_user_role):
+    if not can_view_application(application, g.current_user, g.current_user_role):
         return jsonify({"error": "not authorized for this document"}), 403
 
     file_path = doc.file_path

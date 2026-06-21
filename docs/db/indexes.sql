@@ -63,3 +63,14 @@ CREATE INDEX IF NOT EXISTS idx_uploaded_documents_app_type_status
 -- index on partner_institution.id_partner_institution.
 CREATE INDEX IF NOT EXISTS idx_partner_institution_partner_id
     ON partner_institution (id_partner_institution);
+
+
+-- index on la_modifications.application_id.
+CREATE INDEX IF NOT EXISTS idx_la_modifications_application_id
+    ON la_modifications (application_id);
+-- composite index on (application_id, status), speeds the "pending proposal exists?" check.
+CREATE INDEX IF NOT EXISTS idx_la_modifications_app_status
+    ON la_modifications (application_id, status);
+-- index on la_modification_exams.modification_id.
+CREATE INDEX IF NOT EXISTS idx_la_modification_exams_modification_id
+    ON la_modification_exams (modification_id);

@@ -186,3 +186,63 @@ class PartnerInstitution(db.Model):
         db.CheckConstraint('id_institution <> id_partner_institution', name='self_partner'),
         db.UniqueConstraint('id_institution', 'id_partner_institution'),
     )
+
+
+class LAModification(db.Model):
+    __tablename__ = 'la_modifications'
+
+    id = db.Column(db.Integer, primary_key=True)
+    application_id = db.Column(db.Integer, db.ForeignKey('applications.id', ondelete='CASCADE', onupdate='CASCADE'), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(32), nullable=False, default='pending')
+    decision_date = db.Column(db.DateTime(timezone=True), nullable=True)
+    notes = db.Column(db.Text, default='')
+    document_id = db.Column(db.Integer, db.ForeignKey('uploaded_documents.id', ondelete='SET NULL', onupdate='CASCADE'), nullable=True)
+
+    __table_args__ = (
+        db.CheckConstraint("status IN ('pending', 'approved', 'rejected')", name='valid_modification_status'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'application_id': self.application_id,
+            'description': self.description,
+            'status': self.status,
+            'decision_date': self.decision_date.isoformat() if self.decision_date else None,
+            'notes': self.notes,
+            'document_id': self.document_id,
+        }
+
+
+class LAModificationExam(db.Model):
+    # typed snapshot of the mapped_exams set as it was BEFORE the modification
+    __tablename__ = 'la_modification_exams'
+
+    id = db.Column(db.Integer, primary_key=True)
+    modification_id = db.Column(db.Integer, db.ForeignKey('la_modifications.id', ondelete='CASCADE', onupdate='CASCADE'), nullable=False)
+    host_exam_id = db.Column(db.Integer, db.ForeignKey('exams.id', ondelete='RESTRICT', onupdate='CASCADE'), nullable=False)
+    sending_exam_id = db.Column(db.Integer, db.ForeignKey('exams.id', ondelete='RESTRICT', onupdate='CASCADE'), nullable=False)
+    grade = db.Column(db.Integer, default=-1)
+    date_passed = db.Column(db.Date, nullable=True)
+    status = db.Column(db.String(32), nullable=False, default='pending')
+    notes = db.Column(db.Text, default='')
+    decision_date = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('modification_id', 'sending_exam_id'),
+        db.UniqueConstraint('modification_id', 'host_exam_id'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'modification_id': self.modification_id,
+            'host_exam_id': self.host_exam_id,
+            'sending_exam_id': self.sending_exam_id,
+            'grade': self.grade,
+            'date_passed': self.date_passed.isoformat() if self.date_passed else None,
+            'status': self.status,
+            'notes': self.notes,
+            'decision_date': self.decision_date.isoformat() if self.decision_date else None,
+        }
