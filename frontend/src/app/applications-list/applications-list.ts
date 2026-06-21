@@ -63,7 +63,12 @@ export class ApplicationsList implements OnInit {
       },
       error: err => {
         console.error(err);
-        this.app.send_notification(err,'error');
+        // when the request fails, show the message returned by the backend
+        let message = 'could not load applications';
+        if (err.error && err.error.error) {
+          message = err.error.error;
+        }
+        this.app.send_notification(message, 'error');
         this.isLoading = false;
         this.cdr.markForCheck();
       }
@@ -159,6 +164,7 @@ export class ApplicationsList implements OnInit {
       next: res => {
         if (res.status === 'success') {
           this.applications = this.applications.filter(a => a.id !== application.id);
+          this.app.send_notification('Application #' + application.id + ' deleted', 'success');
         } else {
           this.app.send_notification(res.error || 'deleting error','error');
           console.error(res.error);
@@ -166,7 +172,12 @@ export class ApplicationsList implements OnInit {
       },
       error: err => {
         console.error(err);
-        this.app.send_notification(err.error.error || 'deleting error','error');
+        // when the request fails, show the message returned by the backend
+        let message = 'deleting error';
+        if (err.error && err.error.error) {
+          message = err.error.error;
+        }
+        this.app.send_notification(message, 'error');
       },
       complete: () => this.cdr.markForCheck()
     });

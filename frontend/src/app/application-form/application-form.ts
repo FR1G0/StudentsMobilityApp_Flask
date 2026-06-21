@@ -3,6 +3,7 @@ import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 
+import { App } from '../app';
 import { Cookies } from '../cookies';
 import { User, Users } from '../api/users';
 import { Institutions, PartnerLink } from '../api/institutions';
@@ -22,10 +23,29 @@ export class ApplicationForm {
     private applicationsApi: Applications,
     private examsApi: Exams,
     private usersApi: Users,
+    private app: App,
     private router: Router,
     private cdr: ChangeDetectorRef,
     @Inject(PLATFORM_ID) private platformId: Object
   ) {}
+
+  // returns the error message sent back by the backend, or the given fallback
+  private backendError(err: any, fallback: string): string {
+    if (err && err.error && err.error.error) {
+      return err.error.error;
+    }
+    return fallback;
+  }
+
+  // notifies the user the save went well and goes back to the applications list
+  private goToApplications() {
+    let message = 'Application created';
+    if (this.action === 'edit') {
+      message = 'Application updated';
+    }
+    this.app.send_notification(message, 'success');
+    this.router.navigate(['/applications']);
+  }
 
   action: string = 'create';
   editApplicationId: number = 0;
@@ -249,7 +269,8 @@ export class ApplicationForm {
         error: err => {
           console.error(err);
           this.isSubmitting = false;
-          this.submitError = 'Update failed. Please try again.';
+          this.submitError = this.backendError(err, 'Update failed. Please try again.');
+          this.app.send_notification(this.submitError, 'error');
         }
       });
     } else {
@@ -266,11 +287,12 @@ export class ApplicationForm {
           if (res.error) {
             this.isSubmitting = false;
             this.submitError = res.error;
+            this.app.send_notification(res.error, 'error');
             return;
           }
           const appId = res.id;
           if (!appId) {
-            this.router.navigate(['/applications']);
+            this.goToApplications();
             return;
           }
           if (this.start_date || this.end_date) {
@@ -288,7 +310,8 @@ export class ApplicationForm {
         error: err => {
           console.error(err);
           this.isSubmitting = false;
-          this.submitError = 'Submission failed. Please try again.';
+          this.submitError = this.backendError(err, 'Submission failed. Please try again.');
+          this.app.send_notification(this.submitError, 'error');
         }
       });
     }
@@ -322,14 +345,21 @@ export class ApplicationForm {
               application_id: applicationId
             }).subscribe({
               next: () => this.handleExamMappings(applicationId),
-              error: res => { console.log(res); this.handleExamMappings(applicationId)}
+              error: err => {
+                console.log(err);
+                this.app.send_notification(this.backendError(err, 'Could not save the learning agreement'), 'warning');
+                this.handleExamMappings(applicationId);
+              }
             });
           } else {
             console.log(res);
             this.handleExamMappings(applicationId);
           }
         },
-        error: () => this.handleExamMappings(applicationId)
+        error: err => {
+          this.app.send_notification(this.backendError(err, 'Could not upload the learning agreement'), 'warning');
+          this.handleExamMappings(applicationId);
+        }
       });
     }
 
@@ -358,16 +388,22 @@ export class ApplicationForm {
 
   private insertMappings(applicationId: number, validPairs: ExamPair[]) {
     if (!validPairs.length) {
-      this.router.navigate(['/applications']);
+      this.goToApplications();
       return;
     }
     let done = 0;
-    const finish = () => { if (++done === validPairs.length) this.router.navigate(['/applications']); };
+    const finish = () => { if (++done === validPairs.length) this.goToApplications(); };
     for (let pair of validPairs) {
       this.examsApi.insertMappedExam(applicationId, {
         sending_exam_id: pair.local_exam_id,
         host_exam_id: pair.host_exam_id
-      }).subscribe({ next: finish, error: finish });
+      }).subscribe({
+        next: finish,
+        error: err => {
+          this.app.send_notification(this.backendError(err, 'An exam mapping could not be saved'), 'warning');
+          finish();
+        }
+      });
     }
   }
 
