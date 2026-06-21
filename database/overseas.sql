@@ -246,7 +246,7 @@ BEGIN
 		END IF;
 
 		IF app_status = 'created' THEN
-			UPDATE application SET status='learning_agreement_pending' WHERE id=NEW.application_id;
+			UPDATE applications SET status='learning_agreement_pending' WHERE id=NEW.application_id;
 		END IF;
 	ELSE
 		-- if it's not a LA, it must be a transcript of records (because of check constraint), check if the status of associated application is valid
