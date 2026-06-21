@@ -53,6 +53,7 @@ export class ApplicationForm {
   examPairs: ExamPair[] = [{ local_exam_id: 0,  host_exam_id: 0 }];
   selectedFile: File | null = null;
   existingDocument: UploadedDocument | null = null;
+  existingTranscript: UploadedDocument | null = null;
 
   isSubmitting = false;
   submitError = '';
@@ -146,6 +147,8 @@ export class ApplicationForm {
         next: res => {
           const la = res.find(d => d.document_type === 'learning_agreement');
           if (la) this.existingDocument = la;
+          const tor = res.find(d => d.document_type === 'transcript');
+          if (tor) this.existingTranscript = tor;
         },
         error : err => console.error(err),
         complete: () => { this.cdr.markForCheck(); }
@@ -186,6 +189,21 @@ export class ApplicationForm {
     this.selectedFile = null;
     const input = document.getElementById('la-upload') as HTMLInputElement;
     if (input) input.value = '';
+  }
+
+  // downloads the given uploaded document by fetching its blob and saving it
+  downloadDocument(doc: UploadedDocument) {
+    this.applicationsApi.downloadDocument(doc.id).subscribe({
+      next: blob => {
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = doc.file_path.split('/').pop() || 'document';
+        link.click();
+        window.URL.revokeObjectURL(url);
+      },
+      error: err => console.error(err)
+    });
   }
 
   formatFileSize(bytes: number): string {
@@ -266,7 +284,7 @@ export class ApplicationForm {
     if (this.selectedFile) {
       this.applicationsApi.uploadApplicationDocument(applicationId, this.selectedFile).subscribe({
         next: res => {
-          if (res.status === 'ok' && res.file_path) {
+          if (res.status === 'success' && res.file_path) {
             this.applicationsApi.insertApplicationDocument({
               document_type: 'learning_agreement',
               file_path: res.file_path,

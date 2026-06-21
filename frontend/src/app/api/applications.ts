@@ -94,6 +94,12 @@ export class Applications {
     return this.http.post<UploadResponse>(endpoint, form, { headers: this.authHeaders() });
   }
 
+  // returns the raw file blob for the given document id (used to download it)
+  downloadDocument(id: number): Observable<Blob> {
+    const endpoint = this.base_url + '/api/application/document/' + id + '/download';
+    return this.http.get(endpoint, { headers: this.authHeaders(), responseType: 'blob' });
+  }
+
   // returns the status of the document deletion (file + db row)
   deleteApplicationDocument(id: number): Observable<StatusResponse> {
     const endpoint = this.base_url + '/api/application/document/' + id + '/delete';
