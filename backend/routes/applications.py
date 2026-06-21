@@ -56,7 +56,7 @@ def list_applications():
 # updates fields on an existing application row, scoped by role permissions
 @applications_blueprint.route("/applications/<int:application_id>", methods=["PATCH"])
 @custom_jwt_required()
-@require_roles(ROLE_STUDENT, ROLE_REFERENT)
+@require_roles(ROLE_STUDENT, ROLE_REFERENT, ROLE_OVERSEAS)
 def update_application(application_id):
     user = g.current_user
 
@@ -70,6 +70,8 @@ def update_application(application_id):
         return jsonify({"error": "student cannot modify this application"}), 403
     if role == ROLE_REFERENT and application.referent_id != user.id:
         return jsonify({"error": "referent cannot modify this application"}), 403
+    if role == ROLE_OVERSEAS and application.host_institution != user.id_institution:
+        return jsonify({"error": "overseas cannot modify this application"}), 403
 
     payload = request.get_json(silent=True)
     if not payload:
@@ -90,6 +92,10 @@ def update_application(application_id):
             {"error": f"unknown fields: {', '.join(sorted(unknown_fields))}"}
         ), 400
 
+    # the Overseas office only drives the workflow status (e.g. pre_departure_completed)
+    if role == ROLE_OVERSEAS and set(payload.keys()) - {"status"}:
+        return jsonify({"error": "overseas can only change status"}), 403
+
     for field, value in payload.items():
         if field in {"year", "sending_institution", "host_institution"}:
             if not isinstance(value, int):
@@ -107,7 +113,13 @@ def update_application(application_id):
             continue
         setattr(application, field, value)
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        # DB triggers enforce workflow preconditions (e.g. approved LA + exams
+        # before pre_departure_completed); surface their message as a 400
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 400
     return jsonify(application.to_dict()), 200
 
 
