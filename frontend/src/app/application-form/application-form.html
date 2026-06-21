@@ -4,9 +4,37 @@
 
 <div class="bg-bg-surface border border-border-subtle rounded-lg p-6 mt-4">
   <form (ngSubmit)="submitApplication()">
-    <div class="mb-6 pb-4 border-b border-border-subtle">
-      <p class="text-[0.6rem] text-text-muted uppercase tracking-[0.2em] mb-0.5">Erasmus</p>
-      <h2 class="text-[1rem] font-semibold text-text-primary">{{ action === 'edit' ? 'Edit' : 'New' }} Mobility Application</h2>
+    <div class="mb-6 pb-4 border-b border-border-subtle flex items-start justify-between gap-3">
+      <div>
+        <p class="text-[0.6rem] text-text-muted uppercase tracking-[0.2em] mb-0.5">Erasmus</p>
+        <h2 class="text-[1rem] font-semibold text-text-primary">{{ action === 'edit' ? 'Edit' : 'New' }} Mobility Application</h2>
+      </div>
+
+      @if (action === 'edit') {
+        <span
+          class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[0.6rem] font-medium uppercase tracking-wider border shrink-0"
+          [ngClass]="{
+            'bg-[#1f1f1f] border-[#3d3d3d] text-[#7a7a7a]':   status === 'created',
+            'bg-[#261f10] border-[#5e4a1a] text-[#c9a040]':   status === 'learning_agreement_pending',
+            'bg-[#101e26] border-[#1a3d52] text-[#4da8d4]':   status === 'pre_departure_completed',
+            'bg-[#101826] border-[#1a2e52] text-[#4d78d4]':   status === 'mobility_ongoing',
+            'bg-[#1a1026] border-[#3d1a52] text-[#a04dd4]':   status === 'exam_recognition',
+            'bg-[#101e14] border-[#1a4022] text-[#4db864]':   status === 'closed'
+          }" >
+          <span
+            class="w-1 h-1 rounded-full"
+            [ngClass]="{
+              'bg-[#7a7a7a]': status === 'created',
+              'bg-[#c9a040]': status === 'learning_agreement_pending',
+              'bg-[#4da8d4]': status === 'pre_departure_completed',
+              'bg-[#4d78d4]': status === 'mobility_ongoing',
+              'bg-[#a04dd4]': status === 'exam_recognition',
+              'bg-[#4db864]': status === 'closed'
+            }"
+          ></span>
+          {{ shortenStatus(status) }}
+        </span>
+      }
     </div>
 
     <!-- Section: Dati Studente -->
@@ -239,6 +267,10 @@
               </div>
 
             </div>
+
+            @if (pair.status === 'rejected' && pair.notes) {
+              <p class="text-[0.7rem] text-red-400/80">rejected: {{ pair.notes }}</p>
+            }
           }
         </div>
 
@@ -281,7 +313,14 @@
       } @else if (existingDocument) {
         <!-- already uploaded document (edit mode), click to download -->
         <div class="flex items-center gap-3 px-4 py-3 bg-bg-raised border border-border-default rounded">
-          <span class="mdi mdi-file-check-outline text-green-400/80 text-xl shrink-0"></span>
+          <span
+            class="mdi text-xl shrink-0"
+            [ngClass]="{
+              'mdi-file-clock-outline text-[#c9a040]':           existingDocument.status === 'pending',
+              'mdi-file-check-outline text-green-400/80':         existingDocument.status === 'approved',
+              'mdi-file-document-remove-outline text-red-400/80': existingDocument.status === 'rejected'
+            }"
+          ></span>
           <button
             type="button"
             (click)="downloadDocument(existingDocument)"
@@ -317,6 +356,10 @@
         </label>
       }
 
+      @if (existingDocument && existingDocument.status === 'rejected' && existingDocument.notes) {
+        <p class="text-[0.7rem] text-red-400/80 mt-2">rejected: {{ existingDocument.notes }}</p>
+      }
+
     </fieldset>
 
     <!-- Section: Transcript of Records (edit mode, click to download) -->
@@ -327,7 +370,14 @@
           Transcript of Records
         </legend>
         <div class="flex items-center gap-3 px-4 py-3 bg-bg-raised border border-border-default rounded">
-          <span class="mdi mdi-file-check-outline text-green-400/80 text-xl shrink-0"></span>
+          <span
+            class="mdi text-xl shrink-0"
+            [ngClass]="{
+              'mdi-file-clock-outline text-[#c9a040]':           existingTranscript.status === 'pending',
+              'mdi-file-check-outline text-green-400/80':         existingTranscript.status === 'approved',
+              'mdi-file-document-remove-outline text-red-400/80': existingTranscript.status === 'rejected'
+            }"
+          ></span>
           <button
             type="button"
             (click)="downloadDocument(existingTranscript)"

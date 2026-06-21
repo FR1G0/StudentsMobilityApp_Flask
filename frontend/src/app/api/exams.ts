@@ -54,6 +54,12 @@ export class Exams {
     return this.http.post<StatusResponse>(endpoint, body, { headers: this.authHeaders() });
   }
 
+  // returns the status of the mapped_exams row deletion
+  deleteMappedExam(id: number): Observable<StatusResponse> {
+    const endpoint = this.base_url + '/api/exam/mapping/delete/' + id;
+    return this.http.post<StatusResponse>(endpoint, {}, { headers: this.authHeaders() });
+  }
+
   // returns the status of the mapped exam status update (sets decision_date to now)
   updateMappedExamStatus(id: number, body: MappedExamStatusBody): Observable<StatusResponse> {
     const endpoint = this.base_url + '/api/exam/mapping/update/' + id;

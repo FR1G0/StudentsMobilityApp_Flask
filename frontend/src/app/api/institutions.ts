@@ -43,6 +43,12 @@ export class Institutions {
     return this.http.post<StatusResponse>(endpoint, {}, { headers: this.authHeaders() });
   }
 
+  // returns the list of all institutions (id, name, country, city)
+  getInstitutions(): Observable<Institution[]> {
+    const endpoint = this.base_url + '/api/institutions';
+    return this.http.get<Institution[]>(endpoint, { headers: this.authHeaders() });
+  }
+
   // returns the list of partner institutions linked to the given institution
   getInstitutionPartners(idInstitution: number): Observable<PartnerLink[]> {
     const endpoint = this.base_url + '/api/institution/' + idInstitution + '/partners';

@@ -114,6 +114,23 @@ def insert_mapped_exam(application_id):
         return jsonify({"status": "failed", "error": str(e)}), 500
 
 
+# NOTE: [POST] /exam/mapping/delete/:id
+# deletes the mapped_exams row identified by :id
+@exams_blueprint.route("/exam/mapping/delete/<int:id>", methods=["POST"])
+@custom_jwt_required()
+def delete_mapped_exam(id):
+    try:
+        mapping = MappedExam.query.get(id)
+        if not mapping:
+            return jsonify({"status": "failed", "error": "mapping not found"}), 404
+        db.session.delete(mapping)
+        db.session.commit()
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "failed", "error": str(e)}), 500
+
+
 # NOTE: [POST] /exam/mapping/update/:id
 # updates the status of the mapped_exam row of given id (e.g. approved/rejected) and decision info
 @exams_blueprint.route("/exam/mapping/update/<int:id>", methods=["POST"])
