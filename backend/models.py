@@ -72,6 +72,12 @@ class Application(db.Model):
 
     __table_args__ = (
         ForeignKeyConstraint(['user_id', 'sending_institution'], ['users.id', 'users.id_institution']),
+        ForeignKeyConstraint(['referent_id', 'sending_institution'], ['users.id', 'users.id_institution']),
+        ForeignKeyConstraint(
+            ['sending_institution', 'host_institution'],
+            ['partner_institution.id_institution', 'partner_institution.id_partner_institution'],
+            onupdate='CASCADE'
+        ),
         db.CheckConstraint('host_institution <> sending_institution', name='different_host_sending'),
         db.CheckConstraint(
             'date_arrived IS NULL OR date_departure IS NULL OR date_departure >= date_arrived',
@@ -145,7 +151,8 @@ class MappedExam(db.Model):
             '(grade = -1 AND date_passed IS NULL) OR (grade <> -1 AND date_passed IS NOT NULL)',
             name='valid_grade_date'
         ),
-        db.UniqueConstraint('application_id', 'host_exam_id', 'sending_exam_id'),
+        db.UniqueConstraint('application_id', 'sending_exam_id'),
+        db.UniqueConstraint('application_id', 'host_exam_id'),
     )
 
 

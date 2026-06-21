@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 5gBs4d9iTwdlp404vQCbpL83bb76OcZ1zDBFlaR7ffyM9tT9XMFOwmvAftQ7qDN
+\restrict FBuXhKiC5jASwpCX0TSzZ50GO9c7qimmFcVh6ifdedUWdtIlGe96IKqf7LPgan8
 
 -- Dumped from database version 17.10
 -- Dumped by pg_dump version 18.4
@@ -18,6 +18,249 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
+
+--
+-- Name: check_application_close(); Type: FUNCTION; Schema: public; Owner: myuser
+--
+
+CREATE FUNCTION public.check_application_close() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NEW.status = 'closed' THEN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM uploaded_documents
+            WHERE application_id = NEW.id
+              AND document_type = 'transcript'
+              AND status = 'approved'
+        ) THEN
+            RAISE EXCEPTION 'cannot close application without an approved transcript of records';
+        END IF;
+
+        IF EXISTS (
+            SELECT 1
+            FROM mapped_exams
+            WHERE application_id = NEW.id
+              AND status <> 'approved'
+        ) THEN
+            RAISE EXCEPTION 'cannot close application: all mapped exams must be approved';
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.check_application_close() OWNER TO myuser;
+
+--
+-- Name: check_application_pre_departure(); Type: FUNCTION; Schema: public; Owner: myuser
+--
+
+CREATE FUNCTION public.check_application_pre_departure() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+	-- check if LA exist and is approved
+	IF NOT EXISTS (
+		SELECT 1
+		FROM uploaded_documents
+		WHERE application_id = NEW.id
+		  AND document_type = 'learning_agreement'
+		  AND status = 'approved'
+	) THEN
+		RAISE EXCEPTION 'cannot move to pre_departure_completed without an approved learning agreement';
+	END IF;
+
+	-- check if there's an exam that's not been approved
+	IF EXISTS (
+		SELECT 1
+		FROM mapped_exams
+		WHERE application_id = NEW.id
+		  AND status <> 'approved'
+	) THEN
+		RAISE EXCEPTION 'cannot move to pre_departure_completed: all mapped exams must be approved';
+	END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.check_application_pre_departure() OWNER TO myuser;
+
+--
+-- Name: check_application_referent(); Type: FUNCTION; Schema: public; Owner: myuser
+--
+
+CREATE FUNCTION public.check_application_referent() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    ref_role VARCHAR(50);
+BEGIN
+    IF NEW.referent_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    SELECT role, id_institution INTO ref_role
+        FROM users
+        WHERE id = NEW.referent_id;
+
+    IF ref_role <> 'referent' THEN
+        RAISE EXCEPTION 'application referent must have role=referent';
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.check_application_referent() OWNER TO myuser;
+
+--
+-- Name: check_mapped_exam_institutions(); Type: FUNCTION; Schema: public; Owner: myuser
+--
+
+CREATE FUNCTION public.check_mapped_exam_institutions() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    app_host_inst       INT;
+    app_sending_inst    INT;
+    host_exam_inst      INT;
+    sending_exam_inst   INT;
+BEGIN
+    SELECT host_institution, sending_institution
+        INTO app_host_inst, app_sending_inst
+        FROM applications
+        WHERE id = NEW.application_id;
+
+    SELECT id_institution INTO host_exam_inst
+        FROM exams WHERE id = NEW.host_exam_id;
+
+    SELECT id_institution INTO sending_exam_inst
+        FROM exams WHERE id = NEW.sending_exam_id;
+
+	-- this can be possible through an independent insert
+    IF host_exam_inst <> app_host_inst THEN
+        RAISE EXCEPTION 'host_exam_id institution does not match application host_institution';
+    END IF;
+
+	-- this can be possible through an independent insert
+    IF sending_exam_inst <> app_sending_inst THEN
+        RAISE EXCEPTION 'sending_exam_id institution does not match application sending_institution';
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.check_mapped_exam_institutions() OWNER TO myuser;
+
+--
+-- Name: mirror_partner_institution(); Type: FUNCTION; Schema: public; Owner: myuser
+--
+
+CREATE FUNCTION public.mirror_partner_institution() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM partner_institution
+        WHERE id_institution = NEW.id_partner_institution
+          AND id_partner_institution = NEW.id_institution
+    ) THEN
+        INSERT INTO partner_institution (id_institution, id_partner_institution)
+            VALUES (NEW.id_partner_institution, NEW.id_institution);
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.mirror_partner_institution() OWNER TO myuser;
+
+--
+-- Name: set_document_decision_date(); Type: FUNCTION; Schema: public; Owner: myuser
+--
+
+CREATE FUNCTION public.set_document_decision_date() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NEW.status IN ('approved', 'rejected') THEN
+        NEW.decision_date := CURRENT_TIMESTAMP;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.set_document_decision_date() OWNER TO myuser;
+
+--
+-- Name: set_mapped_exam_decision_date(); Type: FUNCTION; Schema: public; Owner: myuser
+--
+
+CREATE FUNCTION public.set_mapped_exam_decision_date() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NEW.status IN ('approved', 'rejected') THEN
+        NEW.decision_date := CURRENT_TIMESTAMP;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.set_mapped_exam_decision_date() OWNER TO myuser;
+
+--
+-- Name: update_application_on_upload(); Type: FUNCTION; Schema: public; Owner: myuser
+--
+
+CREATE FUNCTION public.update_application_on_upload() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$ 
+DECLARE
+	app_status VARCHAR(32);
+BEGIN
+	SELECT status 
+		INTO app_status
+		FROM applications
+		WHERE id = NEW.application_id;
+
+	IF NEW.document_type = 'learning_agreement' THEN
+		-- check if the status of associated applicaiton is valid
+		IF app_status NOT IN ('created','learning_agreement_pending') THEN
+			RAISE EXCEPTION 'new learning agreement document cannot be changed while the application is in % status', app_status;
+		END IF;
+
+		IF app_status = 'created' THEN
+			UPDATE application SET status='learning_agreement_pending' WHERE id=NEW.application_id;
+		END IF;
+	ELSE
+		-- if it's not a LA, it must be a transcript of records (because of check constraint), check if the status of associated application is valid
+		IF app_status <> 'exam_recognition' THEN
+			RAISE EXCEPTION 'new transcript of records document cannot be changed while the application is in % status', app_status;
+		END IF;
+	END IF;
+
+	RETURN NEW;
+END
+$$;
+
+
+ALTER FUNCTION public.update_application_on_upload() OWNER TO myuser;
 
 SET default_tablespace = '';
 
@@ -130,6 +373,36 @@ CREATE TABLE public.institutions (
 ALTER TABLE public.institutions OWNER TO myuser;
 
 --
+-- Name: partner_institution; Type: TABLE; Schema: public; Owner: myuser
+--
+
+CREATE TABLE public.partner_institution (
+    id integer NOT NULL,
+    id_institution integer NOT NULL,
+    id_partner_institution integer NOT NULL
+);
+
+
+ALTER TABLE public.partner_institution OWNER TO myuser;
+
+--
+-- Name: institution_partner_count_view; Type: VIEW; Schema: public; Owner: myuser
+--
+
+CREATE VIEW public.institution_partner_count_view AS
+ SELECT i.id,
+    i.name,
+    i.country,
+    i.city,
+    count(pi.id) AS partner_count
+   FROM (public.institutions i
+     LEFT JOIN public.partner_institution pi ON ((pi.id_institution = i.id)))
+  GROUP BY i.id, i.name, i.country, i.city;
+
+
+ALTER VIEW public.institution_partner_count_view OWNER TO myuser;
+
+--
 -- Name: institutions_id_seq; Type: SEQUENCE; Schema: public; Owner: myuser
 --
 
@@ -194,17 +467,88 @@ ALTER SEQUENCE public.mapped_exams_id_seq OWNED BY public.mapped_exams.id;
 
 
 --
--- Name: partner_institution; Type: TABLE; Schema: public; Owner: myuser
+-- Name: mv_applications_by_host_institution; Type: MATERIALIZED VIEW; Schema: public; Owner: myuser
 --
 
-CREATE TABLE public.partner_institution (
+CREATE MATERIALIZED VIEW public.mv_applications_by_host_institution AS
+ SELECT hi.id AS host_institution_id,
+    hi.name AS host_institution_name,
+    hi.country AS host_institution_country,
+    count(a.id) AS applications_count
+   FROM (public.applications a
+     JOIN public.institutions hi ON ((hi.id = a.host_institution)))
+  GROUP BY hi.id, hi.name, hi.country
+  WITH NO DATA;
+
+
+ALTER MATERIALIZED VIEW public.mv_applications_by_host_institution OWNER TO myuser;
+
+--
+-- Name: mv_applications_by_status; Type: MATERIALIZED VIEW; Schema: public; Owner: myuser
+--
+
+CREATE MATERIALIZED VIEW public.mv_applications_by_status AS
+ SELECT status,
+    count(*) AS applications_count
+   FROM public.applications
+  GROUP BY status
+  WITH NO DATA;
+
+
+ALTER MATERIALIZED VIEW public.mv_applications_by_status OWNER TO myuser;
+
+--
+-- Name: users; Type: TABLE; Schema: public; Owner: myuser
+--
+
+CREATE TABLE public.users (
     id integer NOT NULL,
-    id_institution integer NOT NULL,
-    id_partner_institution integer NOT NULL
+    email character varying(255) NOT NULL,
+    password_hash character varying(255) NOT NULL,
+    role character varying(50) NOT NULL,
+    firstname character varying(255) NOT NULL,
+    lastname character varying(255) NOT NULL,
+    id_institution integer NOT NULL
 );
 
 
-ALTER TABLE public.partner_institution OWNER TO myuser;
+ALTER TABLE public.users OWNER TO myuser;
+
+--
+-- Name: mv_institution_activity; Type: MATERIALIZED VIEW; Schema: public; Owner: myuser
+--
+
+CREATE MATERIALIZED VIEW public.mv_institution_activity AS
+ SELECT id AS institution_id,
+    name,
+    country,
+    city,
+    ( SELECT count(*) AS count
+           FROM public.users u
+          WHERE ((u.id_institution = i.id) AND ((u.role)::text = 'student'::text))) AS students_count,
+    ( SELECT count(*) AS count
+           FROM public.users u
+          WHERE ((u.id_institution = i.id) AND ((u.role)::text = 'staff'::text))) AS staff_count,
+    ( SELECT count(*) AS count
+           FROM public.users u
+          WHERE ((u.id_institution = i.id) AND ((u.role)::text = 'referent'::text))) AS referents_count,
+    ( SELECT count(*) AS count
+           FROM public.exams e
+          WHERE (e.id_institution = i.id)) AS exams_count,
+    ( SELECT count(*) AS count
+           FROM public.applications a
+          WHERE (a.sending_institution = i.id)) AS sent_applications,
+    ( SELECT count(*) AS count
+           FROM public.applications a
+          WHERE (a.host_institution = i.id)) AS hosted_applications,
+    ( SELECT count(*) AS count
+           FROM public.partner_institution pi
+          WHERE (pi.id_institution = i.id)) AS partners_count
+   FROM public.institutions i
+  WITH NO DATA;
+
+
+ALTER MATERIALIZED VIEW public.mv_institution_activity OWNER TO myuser;
 
 --
 -- Name: partner_institution_id_seq; Type: SEQUENCE; Schema: public; Owner: myuser
@@ -268,23 +612,6 @@ ALTER SEQUENCE public.uploaded_documents_id_seq OWNER TO myuser;
 
 ALTER SEQUENCE public.uploaded_documents_id_seq OWNED BY public.uploaded_documents.id;
 
-
---
--- Name: users; Type: TABLE; Schema: public; Owner: myuser
---
-
-CREATE TABLE public.users (
-    id integer NOT NULL,
-    email character varying(255) NOT NULL,
-    password_hash character varying(255) NOT NULL,
-    role character varying(50) NOT NULL,
-    firstname character varying(255) NOT NULL,
-    lastname character varying(255) NOT NULL,
-    id_institution integer NOT NULL
-);
-
-
-ALTER TABLE public.users OWNER TO myuser;
 
 --
 -- Name: users_id_seq; Type: SEQUENCE; Schema: public; Owner: myuser
@@ -521,6 +848,8 @@ COPY public.institutions (id, name, country, city) FROM stdin;
 
 COPY public.mapped_exams (id, application_id, date_passed, grade, status, decision_date, notes, previous_id, host_exam_id, sending_exam_id) FROM stdin;
 1	5	\N	-1	pending	\N		-1	22	2
+4	5	\N	-1	pending	\N		-1	25	2
+11	5	\N	-1	pending	\N		-1	23	2
 \.
 
 
@@ -575,6 +904,7 @@ COPY public.partner_institution (id, id_institution, id_partner_institution) FRO
 --
 
 COPY public.uploaded_documents (id, document_type, file_path, user_id, application_id, date_updated, status, decision_date, notes) FROM stdin;
+1	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/5/FRIGO_JOSEPH_Learning_Agreement.pdf	1	5	2026-06-20 20:41:37.676136+00	pending	\N	
 \.
 
 
@@ -709,7 +1039,7 @@ SELECT pg_catalog.setval('public.institutions_id_seq', 1, false);
 -- Name: mapped_exams_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.mapped_exams_id_seq', 1, true);
+SELECT pg_catalog.setval('public.mapped_exams_id_seq', 13, true);
 
 
 --
@@ -723,7 +1053,7 @@ SELECT pg_catalog.setval('public.partner_institution_id_seq', 38, true);
 -- Name: uploaded_documents_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.uploaded_documents_id_seq', 1, false);
+SELECT pg_catalog.setval('public.uploaded_documents_id_seq', 2, true);
 
 
 --
@@ -835,6 +1165,188 @@ ALTER TABLE ONLY public.users
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: idx_applications_date_submitted_desc; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_applications_date_submitted_desc ON public.applications USING btree (date_submitted DESC);
+
+
+--
+-- Name: idx_applications_host_institution; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_applications_host_institution ON public.applications USING btree (host_institution);
+
+
+--
+-- Name: idx_applications_referent_id; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_applications_referent_id ON public.applications USING btree (referent_id);
+
+
+--
+-- Name: idx_applications_sending_institution; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_applications_sending_institution ON public.applications USING btree (sending_institution);
+
+
+--
+-- Name: idx_applications_status; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_applications_status ON public.applications USING btree (status);
+
+
+--
+-- Name: idx_applications_user_id; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_applications_user_id ON public.applications USING btree (user_id);
+
+
+--
+-- Name: idx_exams_id_institution; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_exams_id_institution ON public.exams USING btree (id_institution);
+
+
+--
+-- Name: idx_mapped_exams_application_id; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_mapped_exams_application_id ON public.mapped_exams USING btree (application_id);
+
+
+--
+-- Name: idx_mapped_exams_application_status; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_mapped_exams_application_status ON public.mapped_exams USING btree (application_id, status);
+
+
+--
+-- Name: idx_mapped_exams_host_exam_id; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_mapped_exams_host_exam_id ON public.mapped_exams USING btree (host_exam_id);
+
+
+--
+-- Name: idx_mapped_exams_sending_exam_id; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_mapped_exams_sending_exam_id ON public.mapped_exams USING btree (sending_exam_id);
+
+
+--
+-- Name: idx_partner_institution_partner_id; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_partner_institution_partner_id ON public.partner_institution USING btree (id_partner_institution);
+
+
+--
+-- Name: idx_uploaded_documents_app_type_date; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_uploaded_documents_app_type_date ON public.uploaded_documents USING btree (application_id, document_type, date_updated DESC);
+
+
+--
+-- Name: idx_uploaded_documents_app_type_status; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_uploaded_documents_app_type_status ON public.uploaded_documents USING btree (application_id, document_type, status);
+
+
+--
+-- Name: idx_uploaded_documents_application_id; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_uploaded_documents_application_id ON public.uploaded_documents USING btree (application_id);
+
+
+--
+-- Name: idx_uploaded_documents_user_id; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_uploaded_documents_user_id ON public.uploaded_documents USING btree (user_id);
+
+
+--
+-- Name: idx_users_id_institution; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_users_id_institution ON public.users USING btree (id_institution);
+
+
+--
+-- Name: idx_users_institution_role; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_users_institution_role ON public.users USING btree (id_institution, role);
+
+
+--
+-- Name: uploaded_documents applicaiton_update_on_upload; Type: TRIGGER; Schema: public; Owner: myuser
+--
+
+CREATE TRIGGER applicaiton_update_on_upload BEFORE INSERT ON public.uploaded_documents FOR EACH ROW EXECUTE FUNCTION public.update_application_on_upload();
+
+
+--
+-- Name: applications application_close_check; Type: TRIGGER; Schema: public; Owner: myuser
+--
+
+CREATE TRIGGER application_close_check BEFORE UPDATE ON public.applications FOR EACH ROW WHEN ((((old.status)::text <> (new.status)::text) AND ((new.status)::text = 'closed'::text))) EXECUTE FUNCTION public.check_application_close();
+
+
+--
+-- Name: applications application_pre_departure_check; Type: TRIGGER; Schema: public; Owner: myuser
+--
+
+CREATE TRIGGER application_pre_departure_check BEFORE UPDATE ON public.applications FOR EACH ROW WHEN ((((old.status)::text <> (new.status)::text) AND ((new.status)::text = 'pre_departure_completed'::text))) EXECUTE FUNCTION public.check_application_pre_departure();
+
+
+--
+-- Name: applications application_referent_check; Type: TRIGGER; Schema: public; Owner: myuser
+--
+
+CREATE TRIGGER application_referent_check BEFORE INSERT OR UPDATE ON public.applications FOR EACH ROW EXECUTE FUNCTION public.check_application_referent();
+
+
+--
+-- Name: mapped_exams mapped_exam_decision_date; Type: TRIGGER; Schema: public; Owner: myuser
+--
+
+CREATE TRIGGER mapped_exam_decision_date BEFORE UPDATE ON public.mapped_exams FOR EACH ROW WHEN (((old.status)::text <> (new.status)::text)) EXECUTE FUNCTION public.set_mapped_exam_decision_date();
+
+
+--
+-- Name: mapped_exams mapped_exam_institutions_check; Type: TRIGGER; Schema: public; Owner: myuser
+--
+
+CREATE TRIGGER mapped_exam_institutions_check BEFORE INSERT OR UPDATE ON public.mapped_exams FOR EACH ROW EXECUTE FUNCTION public.check_mapped_exam_institutions();
+
+
+--
+-- Name: partner_institution partner_institution_symmetry; Type: TRIGGER; Schema: public; Owner: myuser
+--
+
+CREATE TRIGGER partner_institution_symmetry AFTER INSERT ON public.partner_institution FOR EACH ROW EXECUTE FUNCTION public.mirror_partner_institution();
+
+
+--
+-- Name: uploaded_documents uploaded_document_decision_date; Type: TRIGGER; Schema: public; Owner: myuser
+--
+
+CREATE TRIGGER uploaded_document_decision_date BEFORE UPDATE ON public.uploaded_documents FOR EACH ROW WHEN (((old.status)::text <> (new.status)::text)) EXECUTE FUNCTION public.set_document_decision_date();
 
 
 --
@@ -950,8 +1462,29 @@ ALTER TABLE ONLY public.users
 
 
 --
+-- Name: mv_applications_by_host_institution; Type: MATERIALIZED VIEW DATA; Schema: public; Owner: myuser
+--
+
+REFRESH MATERIALIZED VIEW public.mv_applications_by_host_institution;
+
+
+--
+-- Name: mv_applications_by_status; Type: MATERIALIZED VIEW DATA; Schema: public; Owner: myuser
+--
+
+REFRESH MATERIALIZED VIEW public.mv_applications_by_status;
+
+
+--
+-- Name: mv_institution_activity; Type: MATERIALIZED VIEW DATA; Schema: public; Owner: myuser
+--
+
+REFRESH MATERIALIZED VIEW public.mv_institution_activity;
+
+
+--
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 5gBs4d9iTwdlp404vQCbpL83bb76OcZ1zDBFlaR7ffyM9tT9XMFOwmvAftQ7qDN
+\unrestrict FBuXhKiC5jASwpCX0TSzZ50GO9c7qimmFcVh6ifdedUWdtIlGe96IKqf7LPgan8
 

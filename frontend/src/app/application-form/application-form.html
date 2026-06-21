@@ -279,13 +279,20 @@
           </button>
         </div>
       } @else if (existingDocument) {
-        <!-- already uploaded document (edit mode) -->
+        <!-- already uploaded document (edit mode), click to download -->
         <div class="flex items-center gap-3 px-4 py-3 bg-bg-raised border border-border-default rounded">
           <span class="mdi mdi-file-check-outline text-green-400/80 text-xl shrink-0"></span>
-          <div class="flex flex-col min-w-0 flex-1">
-            <span class="text-[0.8rem] text-text-primary truncate">{{ existingDocument.file_path.split('/').pop() }}</span>
-            <span class="text-[0.65rem] text-text-muted">Already uploaded · {{ existingDocument.status }}</span>
-          </div>
+          <button
+            type="button"
+            (click)="downloadDocument(existingDocument)"
+            class="group flex items-center gap-2 min-w-0 flex-1 text-left"
+          >
+            <div class="flex flex-col min-w-0 flex-1">
+              <span class="text-[0.8rem] text-text-primary truncate group-hover:text-blue-400/80 transition-colors duration-100">{{ existingDocument.file_path.split('/').pop() }}</span>
+              <span class="text-[0.65rem] text-text-muted">Already uploaded · {{ existingDocument.status }} · click to download</span>
+            </div>
+            <span class="mdi mdi-download text-text-muted group-hover:text-blue-400/80 text-base shrink-0 transition-colors duration-100"></span>
+          </button>
           <label
             for="la-upload"
             class="flex items-center gap-1 px-2.5 py-1 rounded text-[0.65rem] text-text-secondary border border-border-default hover:border-border-strong hover:bg-bg-overlay cursor-pointer transition-all duration-100 shrink-0"
@@ -311,6 +318,30 @@
       }
 
     </fieldset>
+
+    <!-- Section: Transcript of Records (edit mode, click to download) -->
+    @if (action === 'edit' && existingTranscript) {
+      <fieldset class="mb-8">
+        <legend class="flex items-center gap-2 text-[0.6rem] text-text-muted uppercase tracking-widest mb-3">
+          <span class="mdi mdi-file-document-outline text-sm"></span>
+          Transcript of Records
+        </legend>
+        <div class="flex items-center gap-3 px-4 py-3 bg-bg-raised border border-border-default rounded">
+          <span class="mdi mdi-file-check-outline text-green-400/80 text-xl shrink-0"></span>
+          <button
+            type="button"
+            (click)="downloadDocument(existingTranscript)"
+            class="group flex items-center gap-2 min-w-0 flex-1 text-left"
+          >
+            <div class="flex flex-col min-w-0 flex-1">
+              <span class="text-[0.8rem] text-text-primary truncate group-hover:text-blue-400/80 transition-colors duration-100">{{ existingTranscript.file_path.split('/').pop() }}</span>
+              <span class="text-[0.65rem] text-text-muted">Already uploaded · {{ existingTranscript.status }} · click to download</span>
+            </div>
+            <span class="mdi mdi-download text-text-muted group-hover:text-blue-400/80 text-base shrink-0 transition-colors duration-100"></span>
+          </button>
+        </div>
+      </fieldset>
+    }
 
     @if (submitError) {
       <p class="text-[0.75rem] text-red-400/80 mb-4">{{ submitError }}</p>

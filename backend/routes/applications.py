@@ -1,7 +1,7 @@
 import os
 from datetime import datetime, date
 
-from flask import Blueprint, jsonify, request, g, current_app
+from flask import Blueprint, jsonify, request, g, current_app, send_file
 
 from auth import (
     ROLE_OVERSEAS,
@@ -359,6 +359,27 @@ def delete_application_document(id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": "failed", "error": str(e)}), 500
+
+
+# NOTE: [GET] /application/document/:id/download
+# sends the uploaded file back so the frontend can download it
+@applications_blueprint.route("/application/document/<int:id>/download", methods=["GET"])
+@custom_jwt_required()
+def download_application_document(id):
+    doc = UploadedDocument.query.get(id)
+    if not doc:
+        return jsonify({"error": "document not found"}), 404
+
+    file_path = doc.file_path
+    if not file_path or not os.path.isfile(file_path):
+        # if file_path is just the filename, try the application uploads dir
+        candidate = os.path.join(_application_upload_dir(doc.application_id), os.path.basename(file_path or ""))
+        if os.path.isfile(candidate):
+            file_path = candidate
+        else:
+            return jsonify({"error": "file not found"}), 404
+
+    return send_file(file_path, as_attachment=True, download_name=os.path.basename(file_path))
 
 
 # NOTE: [GET] /application/exams_mapping/:application_id
