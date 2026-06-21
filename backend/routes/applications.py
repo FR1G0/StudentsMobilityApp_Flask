@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 from flask import Blueprint, jsonify, request, g, current_app, send_file
 
@@ -354,6 +354,35 @@ def delete_application_document(id):
                 os.remove(candidate)
 
         db.session.delete(doc)
+        db.session.commit()
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "failed", "error": str(e)}), 500
+
+
+# NOTE: [POST] /application/document/:id/update
+# updates the status (approved/rejected) and notes of an uploaded_document and
+# records the decision date (referent/staff approve or reject the document)
+@applications_blueprint.route("/application/document/<int:id>/update", methods=["POST"])
+@custom_jwt_required()
+@require_roles(ROLE_REFERENT, ROLE_OVERSEAS)
+def update_application_document(id):
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "failed", "error": "missing body"}), 400
+
+        doc = UploadedDocument.query.get(id)
+        if not doc:
+            return jsonify({"status": "failed", "error": "document not found"}), 404
+
+        if "status" in data:
+            doc.status = data["status"]
+        if "notes" in data:
+            doc.notes = data["notes"]
+        doc.decision_date = datetime.now(timezone.utc)
+
         db.session.commit()
         return jsonify({"status": "success"}), 200
     except Exception as e:
