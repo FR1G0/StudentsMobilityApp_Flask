@@ -54,8 +54,6 @@ def upgrade():
         sa.CheckConstraint("status IN ('pending', 'approved', 'rejected')",
                            name='valid_modification_status'),
     )
-    op.create_index('idx_la_modifications_application_id', 'la_modifications',
-                    ['application_id'])
     op.create_index('idx_la_modifications_app_status', 'la_modifications',
                     ['application_id', 'status'])
 
@@ -93,5 +91,4 @@ def downgrade():
     op.drop_index('idx_la_modification_exams_modification_id', table_name='la_modification_exams')
     op.drop_table('la_modification_exams')
     op.drop_index('idx_la_modifications_app_status', table_name='la_modifications')
-    op.drop_index('idx_la_modifications_application_id', table_name='la_modifications')
     op.drop_table('la_modifications')

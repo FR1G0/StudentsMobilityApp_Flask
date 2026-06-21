@@ -65,10 +65,8 @@ CREATE INDEX IF NOT EXISTS idx_partner_institution_partner_id
     ON partner_institution (id_partner_institution);
 
 
--- index on la_modifications.application_id.
-CREATE INDEX IF NOT EXISTS idx_la_modifications_application_id
-    ON la_modifications (application_id);
--- composite index on (application_id, status), speeds the "pending proposal exists?" check.
+-- composite index on (application_id, status); its leftmost prefix also covers
+-- lookups by application_id alone, so no separate single-column index is needed.
 CREATE INDEX IF NOT EXISTS idx_la_modifications_app_status
     ON la_modifications (application_id, status);
 -- index on la_modification_exams.modification_id.
