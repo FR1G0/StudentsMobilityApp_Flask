@@ -52,6 +52,12 @@ CREATE TABLE applications (
 	
 	-- make sure that it's the user's actual institution
 	FOREIGN KEY (user_id, sending_institution) REFERENCES users(id,id_institution),
+	FOREIGN KEY (referent_id, sending_institution) REFERENCES users(id, id_institution),
+
+	-- make sure that the two institutions are partners
+	FOREIGN KEY (sending_institution, host_institution) REFERENCES partner_institution (id_institution, id_partner_institution)
+		ON UPDATE CASCADE,
+
 
 	user_id INT NOT NULL,
 	FOREIGN KEY (user_id) REFERENCES users(id)
@@ -130,9 +136,9 @@ CREATE TABLE mapped_exams (
 		(grade=-1 AND date_passed IS NULL)
 		OR (grade <> -1 AND date_passed IS NOT NULL)
 	),
-	-- TODO: enforce host_exam_id.id_institution = application.host_institution
-    -- TODO: enforce sending_exam_id.id_institution = application.sending_institution
-	UNIQUE (application_id,host_exam_id,sending_exam_id)
+
+	UNIQUE (application_id, sending_exam_id),
+	UNIQUE (application_id, host_exam_id)
 );
 
 CREATE TABLE uploaded_documents (
