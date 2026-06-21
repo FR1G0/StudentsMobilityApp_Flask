@@ -106,6 +106,15 @@ export class Applications {
     return this.http.post<StatusResponse>(endpoint, {}, { headers: this.authHeaders() });
   }
 
+  // returns the status of the document decision update (approve/reject a learning
+  // agreement or transcript, with an optional rejection reason in "notes")
+  // NOTE: this calls a backend route that still needs to be implemented, see
+  //       POST /api/application/document/<id>/update
+  updateDocumentStatus(id: number, body: DocumentStatusBody): Observable<StatusResponse> {
+    const endpoint = this.base_url + '/api/application/document/' + id + '/update';
+    return this.http.post<StatusResponse>(endpoint, body, { headers: this.authHeaders() });
+  }
+
   // returns the list of mapped_exams rows associated to the given application
   listApplicationExamMappings(applicationId: number): Observable<MappedExamRow[]> {
     const endpoint = this.base_url + '/api/application/exams_mapping/' + applicationId;
@@ -188,6 +197,11 @@ export interface DocumentInsertBody {
   file_path: string;
   application_id: number;
   user_id?: number;
+  notes?: string;
+}
+
+export interface DocumentStatusBody {
+  status?: string;
   notes?: string;
 }
 
