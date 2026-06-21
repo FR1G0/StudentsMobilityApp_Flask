@@ -176,6 +176,11 @@ def post_update_application(id):
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
 
+        if not can_view_application(application, g.current_user, g.current_user_role):
+            return jsonify(
+                {"status": "failed", "error": "cannot modify this application"}
+            ), 403
+
         if "year" in data:
             application.year = data["year"]
         if "semester" in data:
@@ -216,13 +221,13 @@ def post_update_application(id):
 @custom_jwt_required()
 @require_roles(ROLE_STUDENT, ROLE_OVERSEAS)
 def delete_application(id):
-    role = g.current_user_role
     try:
         application = Application.query.get(id)
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
 
-        if role == ROLE_STUDENT and application.user_id != g.current_user_id:
+        # students delete only their own; staff only apps hosted by their institution
+        if not can_view_application(application, g.current_user, g.current_user_role):
             return jsonify(
                 {"status": "failed", "error": "cannot delete this application"}
             ), 403
@@ -513,6 +518,12 @@ def decide_application_document(id):
 @custom_jwt_required()
 def list_application_exam_mappings(application_id):
     try:
+        application = Application.query.get(application_id)
+        if not application:
+            return jsonify({"error": "application not found"}), 404
+        if not can_view_application(application, g.current_user, g.current_user_role):
+            return jsonify({"error": "not authorized for this application"}), 403
+
         mappings = MappedExam.query.filter_by(application_id=application_id).all()
         result = []
         for mapping in mappings:
