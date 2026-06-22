@@ -3,6 +3,7 @@ import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 
+import { App } from '../app';
 import { Cookies } from '../cookies';
 import { User, Users } from '../api/users';
 import { Institutions, PartnerLink } from '../api/institutions';
@@ -22,10 +23,29 @@ export class ApplicationForm {
     private applicationsApi: Applications,
     private examsApi: Exams,
     private usersApi: Users,
+    private app: App,
     private router: Router,
     private cdr: ChangeDetectorRef,
     @Inject(PLATFORM_ID) private platformId: Object
   ) {}
+
+  // returns the error message sent back by the backend, or the given fallback
+  private backendError(err: any, fallback: string): string {
+    if (err && err.error && err.error.error) {
+      return err.error.error;
+    }
+    return fallback;
+  }
+
+  // notifies the user the save went well and goes back to the applications list
+  private goToApplications() {
+    let message = 'Application created';
+    if (this.action === 'edit') {
+      message = 'Application updated';
+    }
+    this.app.send_notification(message, 'success');
+    this.router.navigate(['/applications']);
+  }
 
   action: string = 'create';
   editApplicationId: number = 0;
@@ -41,6 +61,7 @@ export class ApplicationForm {
   start_date: string = '';
   end_date: string = '';
   notes: string = '';
+  status: string = '';
 
   // dropdown data
   semesters: string[] = [];
@@ -51,6 +72,7 @@ export class ApplicationForm {
   hostExams: Exam[] = [];
 
   examPairs: ExamPair[] = [{ local_exam_id: 0,  host_exam_id: 0 }];
+  existingMappingIds: number[] = [];
   selectedFile: File | null = null;
   existingDocument: UploadedDocument | null = null;
   existingTranscript: UploadedDocument | null = null;
@@ -80,6 +102,7 @@ export class ApplicationForm {
         this.host_institution_id = app.host_institution;
         this.referent_id = app.referent_id ?? 0;
         this.notes = app.notes ?? '';
+        this.status = app.status ?? '';
         this.start_date = app.date_arrived ?? '';
         this.end_date = app.date_departure ?? '';
       }
@@ -128,12 +151,23 @@ export class ApplicationForm {
       })
 
       // get exam mappings
-      this.applicationsApi.listApplicationExamMappings(this.host_institution_id).subscribe({
+      this.applicationsApi.listApplicationExamMappings(this.editApplicationId).subscribe({
         next: res => {
           this.onHostInstitutionChange();
           this.examPairs = [];
+          this.existingMappingIds = [];
           for(let exam_map of res) {
-            this.examPairs.push({ local_exam_id: exam_map.sending_exam_id, host_exam_id: exam_map.host_exam_id })
+            this.examPairs.push({
+              local_exam_id: exam_map.sending_exam_id,
+              host_exam_id: exam_map.host_exam_id,
+              status: exam_map.status,
+              notes: exam_map.notes
+            });
+            this.existingMappingIds.push(exam_map.id);
+          }
+          // keep at least one empty row so the user can still edit
+          if (this.examPairs.length === 0) {
+            this.examPairs.push({ local_exam_id: 0, host_exam_id: 0 });
           }
         },
         error: err => {
@@ -235,7 +269,8 @@ export class ApplicationForm {
         error: err => {
           console.error(err);
           this.isSubmitting = false;
-          this.submitError = 'Update failed. Please try again.';
+          this.submitError = this.backendError(err, 'Update failed. Please try again.');
+          this.app.send_notification(this.submitError, 'error');
         }
       });
     } else {
@@ -252,11 +287,12 @@ export class ApplicationForm {
           if (res.error) {
             this.isSubmitting = false;
             this.submitError = res.error;
+            this.app.send_notification(res.error, 'error');
             return;
           }
           const appId = res.id;
           if (!appId) {
-            this.router.navigate(['/applications']);
+            this.goToApplications();
             return;
           }
           if (this.start_date || this.end_date) {
@@ -274,15 +310,33 @@ export class ApplicationForm {
         error: err => {
           console.error(err);
           this.isSubmitting = false;
-          this.submitError = 'Submission failed. Please try again.';
+          this.submitError = this.backendError(err, 'Submission failed. Please try again.');
+          this.app.send_notification(this.submitError, 'error');
         }
       });
     }
   }
 
   private handleFileAndExams(applicationId: number) {
-    if (this.selectedFile) {
-      this.applicationsApi.uploadApplicationDocument(applicationId, this.selectedFile).subscribe({
+    if (!this.selectedFile) {
+      this.handleExamMappings(applicationId);
+      return;
+    }
+
+    // when replacing, remove the previous learning agreement row first
+    if (this.existingDocument) {
+      this.applicationsApi.deleteApplicationDocument(this.existingDocument.id).subscribe({
+        next: () => console.log("uploaded"),
+        error: err => console.error(err),
+        complete : () => this.uploadAndInsert(applicationId)
+      });
+    } else {
+      this.uploadAndInsert(applicationId);
+    }
+  }
+
+  private uploadAndInsert(applicationId: number) {
+      this.applicationsApi.uploadApplicationDocument(applicationId, this.selectedFile!).subscribe({
         next: res => {
           if (res.status === 'success' && res.file_path) {
             this.applicationsApi.insertApplicationDocument({
@@ -291,37 +345,81 @@ export class ApplicationForm {
               application_id: applicationId
             }).subscribe({
               next: () => this.handleExamMappings(applicationId),
-              error: () => this.handleExamMappings(applicationId)
+              error: err => {
+                console.log(err);
+                this.app.send_notification(this.backendError(err, 'Could not save the learning agreement'), 'warning');
+                this.handleExamMappings(applicationId);
+              }
             });
           } else {
+            console.log(res);
             this.handleExamMappings(applicationId);
           }
         },
-        error: () => this.handleExamMappings(applicationId)
+        error: err => {
+          this.app.send_notification(this.backendError(err, 'Could not upload the learning agreement'), 'warning');
+          this.handleExamMappings(applicationId);
+        }
       });
-    } else {
-      this.handleExamMappings(applicationId);
     }
-  }
+
 
   private handleExamMappings(applicationId: number) {
     const validPairs = this.examPairs.filter(p => p.local_exam_id > 0 && p.host_exam_id > 0);
+
+    // in edit mode, drop the previous mappings first so removals/changes take
+    // effect and re-inserts do not collide with the unique constraints
+    if (this.existingMappingIds.length > 0) {
+      let deleted = 0;
+      const total = this.existingMappingIds.length;
+      const afterDelete = () => {
+        deleted = deleted + 1;
+        if (deleted === total) {
+          this.insertMappings(applicationId, validPairs);
+        }
+      };
+      for (let mappingId of this.existingMappingIds) {
+        this.examsApi.deleteMappedExam(mappingId).subscribe({ next: afterDelete, error: afterDelete });
+      }
+    } else {
+      this.insertMappings(applicationId, validPairs);
+    }
+  }
+
+  private insertMappings(applicationId: number, validPairs: ExamPair[]) {
     if (!validPairs.length) {
-      this.router.navigate(['/applications']);
+      this.goToApplications();
       return;
     }
     let done = 0;
-    const finish = () => { if (++done === validPairs.length) this.router.navigate(['/applications']); };
-    validPairs.forEach(pair => {
+    const finish = () => { if (++done === validPairs.length) this.goToApplications(); };
+    for (let pair of validPairs) {
       this.examsApi.insertMappedExam(applicationId, {
         sending_exam_id: pair.local_exam_id,
         host_exam_id: pair.host_exam_id
-      }).subscribe({ next: finish, error: finish });
-    });
+      }).subscribe({
+        next: finish,
+        error: err => {
+          this.app.send_notification(this.backendError(err, 'An exam mapping could not be saved'), 'warning');
+          finish();
+        }
+      });
+    }
+  }
+
+  shortenStatus(status: string): string {
+    if (status == 'learning_agreement_pending') return 'la pending';
+    if (status == 'pre_departure_completed') return 'pre completed';
+    if (status == 'mobility_ongoing') return 'ongoing';
+    if (status == 'exam_recognition') return 'exam recognition';
+    return status;
   }
 }
 
 interface ExamPair {
   local_exam_id: number;
   host_exam_id: number;
+  // decision info coming from the existing mapping (used to show a rejection note)
+  status?: string;
+  notes?: string;
 }
