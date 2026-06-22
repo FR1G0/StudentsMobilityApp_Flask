@@ -179,7 +179,7 @@ def insert_application():
 # updates the fields of an existing application row using the json body
 @applications_blueprint.route("/application/update/<int:id>", methods=["POST"])
 @custom_jwt_required()
-@require_roles(ROLE_STUDENT, ROLE_REFERENT)
+@require_roles(ROLE_STUDENT, ROLE_REFERENT, ROLE_OVERSEAS)
 def post_update_application(id):
     try:
         data = request.get_json()
