@@ -15,6 +15,21 @@ def normalize_role(role):
     return role.strip().lower().replace(" ", "_")
 
 
+# Authorization rule shared by the routes: who may access an application
+# (and therefore its uploaded files / modifications).
+#   student  -> only their own applications
+#   referent -> only applications they are referent for
+#   overseas -> only applications hosted by their institution
+def can_view_application(application, user, role):
+    if role == ROLE_STUDENT:
+        return application.user_id == user.id
+    if role == ROLE_REFERENT:
+        return application.referent_id == user.id
+    if role == ROLE_OVERSEAS:
+        return application.host_institution == user.id_institution
+    return False
+
+
 # Gate a route to a set of roles. Must be stacked BELOW custom_jwt_required
 # (i.e. custom_jwt_required on top), since it reads g.current_user_role.
 def require_roles(*allowed):
