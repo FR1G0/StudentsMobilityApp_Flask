@@ -393,6 +393,47 @@
       </fieldset>
     }
 
+    <!-- Section: Transcript upload (student, exam_recognition, no transcript yet) -->
+    @if (action === 'edit' && user.role === 'student' && status === 'exam_recognition' && !existingTranscript) {
+      <fieldset class="mb-8">
+        <legend class="flex items-center gap-2 text-[0.6rem] text-text-muted uppercase tracking-widest mb-3">
+          <span class="mdi mdi-file-document-outline text-sm"></span>
+          Transcript of Records
+        </legend>
+
+        @if (transcriptFile) {
+          <div class="flex items-center gap-3 px-4 py-3 bg-bg-raised border border-border-default rounded mb-3">
+            <span class="mdi mdi-file-pdf-box text-red-400 text-xl shrink-0"></span>
+            <div class="flex flex-col min-w-0 flex-1">
+              <span class="text-[0.8rem] text-text-primary truncate">{{ transcriptFile.name }}</span>
+              <span class="text-[0.65rem] text-text-muted">{{ formatFileSize(transcriptFile.size) }}</span>
+            </div>
+          </div>
+        } @else {
+          <label
+            for="tor-upload"
+            class="flex flex-col items-center justify-center gap-2 w-full py-8 border border-dashed border-border-default hover:border-border-strong bg-bg-base hover:bg-bg-raised rounded cursor-pointer transition-all duration-150 group mb-3"
+          >
+            <span class="mdi mdi-upload text-2xl text-text-muted group-hover:text-text-secondary transition-colors duration-150"></span>
+            <div class="text-center">
+              <p class="text-[0.8rem] text-text-secondary">Drag the file here, or <span class="text-blue-400/80">click here to select</span></p>
+              <p class="text-[0.65rem] text-text-muted mt-0.5">Only PDF · Max 10 MB</p>
+            </div>
+          </label>
+        }
+        <input id="tor-upload" name="transcript" type="file" accept=".pdf" class="sr-only" (change)="onTranscriptSelected($event)" />
+
+        <button
+          type="button"
+          (click)="uploadTranscript()"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded text-[0.7rem] font-medium bg-[#101e14] border border-[#1a4022] text-[#4db864] hover:bg-[#13261a] transition-all duration-150"
+        >
+          <span class="mdi mdi-upload text-sm"></span>
+          Upload Transcript
+        </button>
+      </fieldset>
+    }
+
     @if (submitError) {
       <p class="text-[0.75rem] text-red-400/80 mb-4">{{ submitError }}</p>
     }
@@ -407,19 +448,40 @@
         >
           Cancel
         </button>
-        <button
-          type="submit"
-          [disabled]="isSubmitting"
-          class="flex items-center gap-1.5 px-4 py-2 rounded text-[0.7rem] font-medium bg-[#1a2a3a] border border-[#2e4a6e] text-[#7ab0e0] hover:bg-[#1e3248] hover:border-[#3d6090] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          @if (isSubmitting) {
-            <span class="mdi mdi-loading mdi-spin text-sm"></span>
-            Submitting...
-          } @else {
-            <span class="mdi mdi-send-outline text-sm"></span>
-            {{ action === 'edit' ? 'Save Changes' : 'Submit Application' }}
-          }
-        </button>
+        <!-- the submit button is replaced by the mobility actions for the student -->
+        @if (action === 'edit' && user.role === 'student' && status === 'pre_departure_completed') {
+          <button
+            type="button"
+            (click)="startMobility()"
+            class="flex items-center gap-1.5 px-4 py-2 rounded text-[0.7rem] font-medium bg-[#101826] border border-[#1a2e52] text-[#4d78d4] hover:bg-[#13203a] transition-all duration-150"
+          >
+            <span class="mdi mdi-airplane-takeoff text-sm"></span>
+            Start Mobility
+          </button>
+        } @else if (action === 'edit' && user.role === 'student' && status === 'mobility_ongoing') {
+          <button
+            type="button"
+            (click)="endMobility()"
+            class="flex items-center gap-1.5 px-4 py-2 rounded text-[0.7rem] font-medium bg-[#1a1026] border border-[#3d1a52] text-[#a04dd4] hover:bg-[#20143a] transition-all duration-150"
+          >
+            <span class="mdi mdi-flag-checkered text-sm"></span>
+            End Mobility
+          </button>
+        } @else {
+          <button
+            type="submit"
+            [disabled]="isSubmitting"
+            class="flex items-center gap-1.5 px-4 py-2 rounded text-[0.7rem] font-medium bg-[#1a2a3a] border border-[#2e4a6e] text-[#7ab0e0] hover:bg-[#1e3248] hover:border-[#3d6090] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            @if (isSubmitting) {
+              <span class="mdi mdi-loading mdi-spin text-sm"></span>
+              Submitting...
+            } @else {
+              <span class="mdi mdi-send-outline text-sm"></span>
+              {{ action === 'edit' ? 'Save Changes' : 'Submit Application' }}
+            }
+          </button>
+        }
       </div>
     </div>
 

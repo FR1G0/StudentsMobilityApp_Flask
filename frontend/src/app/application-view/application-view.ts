@@ -57,6 +57,11 @@ export class ApplicationView {
   laReason: string = '';
   torReason: string = '';
 
+  // student mobility lifecycle inputs
+  mobilityStartDate: string = '';
+  mobilityEndDate: string = '';
+  transcriptFile: File | null = null;
+
   cancel() {
     this.router.navigate(['/applications']);
   }
@@ -72,6 +77,9 @@ export class ApplicationView {
       if (state && state.application) {
         this.application = state.application;
         this.applicationId = this.application.id;
+        // pre-fill the student date inputs with whatever the application already has
+        this.mobilityStartDate = this.application.date_arrived || '';
+        this.mobilityEndDate = this.application.date_departure || '';
       }
       this.cdr.markForCheck();
     }
@@ -272,12 +280,139 @@ export class ApplicationView {
     });
   }
 
-  // updates the application status and notifies the user when done
+  // updates the application status and notifies the user when done.
+  // if a database trigger rejects the transition the backend returns an error,
+  // which we surface to the user as a notification.
   private setApplicationStatus(status: string, successMessage: string) {
     this.applicationsApi.updateApplication(this.applicationId, { status: status }).subscribe({
-      next: () => {
+      next: res => {
+        if (res.status !== 'success') {
+          this.app.send_notification(res.error || 'Could not update the application status', 'error');
+          return;
+        }
         this.application.status = status;
         this.app.send_notification(successMessage, 'success');
+      },
+      error: err => this.app.send_notification(this.readError(err), 'error'),
+      complete: () => this.cdr.markForCheck()
+    });
+  }
+
+  // ---- Staff: advance the application through its workflow ----
+  // the business checks are enforced by database triggers, so if the conditions
+  // are not met it is the database that returns the error (handled above).
+
+  // moves the application forward to 'pre_departure_completed'
+  proceedToPreDeparture() {
+    this.setApplicationStatus('pre_departure_completed', 'Application moved to pre-departure');
+  }
+
+  // permanently closes the application once it is in 'exam_recognition'
+  closeApplication() {
+    this.setApplicationStatus('closed', 'Application closed');
+  }
+
+  // ---- Student: progress the mobility lifecycle ----
+  // the transitions are validated by database triggers, so an invalid one comes
+  // back as an error that is surfaced to the user.
+
+  // starts the mobility: moves to 'mobility_ongoing' and registers the arrival date
+  startMobility() {
+    this.applicationsApi.updateApplication(this.applicationId, {
+      status: 'mobility_ongoing',
+      date_arrived: this.mobilityStartDate || undefined,
+      date_departure: this.mobilityEndDate || undefined
+    }).subscribe({
+      next: res => {
+        if (res.status !== 'success') {
+          this.app.send_notification(res.error || 'Could not start the mobility', 'error');
+          return;
+        }
+        this.application.status = 'mobility_ongoing';
+        this.application.date_arrived = this.mobilityStartDate || null;
+        this.application.date_departure = this.mobilityEndDate || null;
+        this.app.send_notification('Mobility started', 'success');
+      },
+      error: err => this.app.send_notification(this.readError(err), 'error'),
+      complete: () => this.cdr.markForCheck()
+    });
+  }
+
+  // ends the mobility: moves to 'exam_recognition' so the transcript can be uploaded
+  endMobility() {
+    this.setApplicationStatus('exam_recognition', 'Mobility ended');
+  }
+
+  onTranscriptSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (input.files && input.files.length) {
+      this.transcriptFile = input.files[0];
+    }
+  }
+
+  // uploads the transcript of records during 'exam_recognition'
+  uploadTranscript() {
+    if (!this.transcriptFile) {
+      this.app.send_notification('Please select a transcript file', 'warning');
+      return;
+    }
+    this.applicationsApi.uploadApplicationDocument(this.applicationId, this.transcriptFile).subscribe({
+      next: res => {
+        if (res.status === 'success' && res.file_path) {
+          this.applicationsApi.insertApplicationDocument({
+            document_type: 'transcript',
+            file_path: res.file_path,
+            application_id: this.applicationId
+          }).subscribe({
+            next: () => {
+              this.transcriptFile = null;
+              this.app.send_notification('Transcript uploaded', 'success');
+              this.reloadTranscript();
+            },
+            error: err => this.app.send_notification(this.readError(err), 'error'),
+            complete: () => this.cdr.markForCheck()
+          });
+        } else {
+          this.app.send_notification('Could not upload the transcript', 'error');
+        }
+      },
+      error: err => this.app.send_notification(this.readError(err), 'error'),
+      complete: () => this.cdr.markForCheck()
+    });
+  }
+
+  // reloads the transcript document after a successful upload
+  private reloadTranscript() {
+    this.applicationsApi.listApplicationDocuments(this.applicationId).subscribe({
+      next: res => {
+        for (let doc of res) {
+          if (doc.document_type === 'transcript') {
+            this.transcript = doc;
+          }
+        }
+      },
+      error: err => console.error(err),
+      complete: () => this.cdr.markForCheck()
+    });
+  }
+
+  // ---- Referent: approve the recognition document during 'exam_recognition' ----
+  // after the referent approves it, the overseas staff is responsible for
+  // permanently closing the application.
+  approveRecognition() {
+    if (!this.transcript) {
+      this.app.send_notification('No document to approve', 'warning');
+      return;
+    }
+    this.applicationsApi.updateDocumentStatus(this.transcript.id, { status: 'approved' }).subscribe({
+      next: res => {
+        if (res.status === 'success') {
+          this.transcript!.status = 'approved';
+          this.transcript!.notes = '';
+          this.app.send_notification('Document approved', 'success');
+        } else {
+          this.app.send_notification(res.error || 'Could not approve the document', 'error');
+        }
       },
       error: err => this.app.send_notification(this.readError(err), 'error'),
       complete: () => this.cdr.markForCheck()
