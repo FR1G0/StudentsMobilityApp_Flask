@@ -74,31 +74,42 @@ FOR EACH ROW
 	EXECUTE FUNCTION check_mapped_exam_institutions();
 
 
--- on INSERT/UPDATE of an application, verifies that the referent (if not null) has role='referent' and is enrolled in the application's sending_institution.
-CREATE OR REPLACE FUNCTION check_application_referent() RETURNS TRIGGER AS $$
-DECLARE
-    ref_role VARCHAR(50);
+-- on INSERT/UPDATE of an application, verifies that the referent (if not null, which it can be) has role='referent' and is enrolled in the application's sending_institution.
+CREATE OR REPLACE FUNCTION check_application_data() RETURNS TRIGGER AS $$
 BEGIN
-    IF NEW.referent_id IS NULL THEN
-        RETURN NEW;
-    END IF;
-
-    SELECT role, id_institution INTO ref_role
+	-- valid referent, institution is checked by existing constraint
+	IF NEW.referent_id IS NOT NULL AND NOT EXISTS(
+		SELECT 1 
         FROM users
-        WHERE id = NEW.referent_id;
-
-    IF ref_role <> 'referent' THEN
+        WHERE id = NEW.referent_id 
+		AND role='referent' 
+	) THEN 
         RAISE EXCEPTION 'application referent must have role=referent';
-    END IF;
+	END IF;
+
+-- valid student, institution is checked by existing constraint
+	IF NOT EXISTS(
+		SELECT 1
+		FROM users
+		WHERE id=NEW.user_id
+		AND role='student'
+	) THEN
+        RAISE EXCEPTION 'application student must have role=student';
+	END IF;
+
+	-- check if student cannot create a application that is already past all the LA & exams validation process
+	IF TG_OP='INSERT' AND NEW.status NOT IN('created','learning_agreement_pending') THEN
+		RAISE EXCEPTION 'application status cannot start with %', NEW.status;
+	END IF;
 
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER application_referent_check
+CREATE TRIGGER application_data_check
 BEFORE INSERT OR UPDATE ON applications
 FOR EACH ROW
-	EXECUTE FUNCTION check_application_referent();
+	EXECUTE FUNCTION check_application_data();
 
 
 -- when an application transitions to status 'pre_departure_completed', verifies that an approved learning_agreement document exists for that application and that all mapped exams were approved.
@@ -172,29 +183,82 @@ FOR EACH ROW
 WHEN (OLD.status <> NEW.status AND NEW.status = 'closed')
 	EXECUTE FUNCTION check_application_close();
 
+-- student puts application into ongoing or exam_recognition
+CREATE OR REPLACE FUNCTION check_student_applicaiton_workflow() RETURNS TRIGGER AS $$
+BEGIN
+	IF NEW.status='mobility_ongoing' THEN
+		-- pre-dept -> ongoing
+		IF NEW.date_arrived IS NULL OR NEW.date_arrived = '' THEN
+			RAISE EXCEPTION 'arrival date required';
+		END IF;
+	ELSE
+		-- ongoing -> recognition
+		IF NEW.date_departure IS NULL OR NEW.date_departure = '' THEN
+			RAISE EXCEPTION 'departure date required';
+		END IF;
+	END IF;
+
+	RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER application_student_changes
+BEFORE UPDATE ON applications
+FOR EACH ROW
+	WHEN (NEW.status='mobility_ongoing' OR NEW.status='exam_recognition')
+	EXECUTE FUNCTION  check_student_applicaiton_workflow();
 
 -- when the status of a mapped_exam changes to 'approved' or 'rejected', automatically stamps decision_date with the current timestamp.
-CREATE OR REPLACE FUNCTION set_mapped_exam_decision_date() RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION check_update_status_mapped_exams() RETURNS TRIGGER AS $$
+DECLARE
+	app_status VARCHAR(32);
 BEGIN
     IF NEW.status IN ('approved', 'rejected') THEN
+		-- prevent status change when application is not in adequate status 
+		SELECT status INTO app_status
+		FROM applications
+		WHERE id = NEW.application_id;
+		IF app_status NOT IN ('created','learning_agreement_pending') THEN
+			RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
+		END IF;
+
         NEW.decision_date := CURRENT_TIMESTAMP;
     END IF;
+
 
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER mapped_exam_decision_date
+CREATE TRIGGER mapped_exam_update_status_check
 BEFORE UPDATE ON mapped_exams
 FOR EACH ROW
 WHEN (OLD.status <> NEW.status)
-	EXECUTE FUNCTION set_mapped_exam_decision_date();
+	EXECUTE FUNCTION check_update_status_mapped_exams();
 
 
 -- when the status of an uploaded_document changes to 'approved' or 'rejected', automatically stamps decision_date with the current timestamp.
-CREATE OR REPLACE FUNCTION set_document_decision_date() RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION check_document_status_update() RETURNS TRIGGER AS $$
+DECLARE
+	app_status VARCHAR(32);
 BEGIN
+	SELECT status INTO app_status
+	FROM applications
+	WHERE id = NEW.application_id;
+
     IF NEW.status IN ('approved', 'rejected') THEN
+		-- prevent status change when application is not in adequate status 
+		IF NEW.document_type='learning_agreement' THEN
+			IF app_status NOT IN ('created','learning_agreement_pending') THEN
+				RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
+			END IF;
+		END IF;
+		IF NEW.document_type='transcript' THEN
+			IF app_status <> 'exam_recognition' THEN
+				RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
+			END IF;
+		END IF;
+
         NEW.decision_date := CURRENT_TIMESTAMP;
     END IF;
 
@@ -202,11 +266,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER uploaded_document_decision_date
+CREATE TRIGGER document_status_update_check
 BEFORE UPDATE ON uploaded_documents
 FOR EACH ROW
 WHEN (OLD.status <> NEW.status)
-	EXECUTE FUNCTION set_document_decision_date();
+	EXECUTE FUNCTION check_document_status_update();
 
 
 -- WHAT: after an INSERT on partner_institution, automatically inserts the reciprocal row (B -> A) if it does not already exist, so that partnership is always symmetrical in the data.

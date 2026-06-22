@@ -76,6 +76,7 @@ export class ApplicationForm {
   selectedFile: File | null = null;
   existingDocument: UploadedDocument | null = null;
   existingTranscript: UploadedDocument | null = null;
+  transcriptFile: File | null = null;
 
   isSubmitting = false;
   submitError = '';
@@ -413,6 +414,88 @@ export class ApplicationForm {
     if (status == 'mobility_ongoing') return 'ongoing';
     if (status == 'exam_recognition') return 'exam recognition';
     return status;
+  }
+
+  // ---- Student mobility lifecycle ----
+  // start mobility moves the application to 'mobility_ongoing' and registers the
+  // arrival date; end mobility moves it to 'exam_recognition' so the transcript of
+  // records can then be uploaded. the database triggers validate each transition.
+
+  startMobility() {
+    this.studentSetStatus('mobility_ongoing', 'Mobility started');
+  }
+
+  endMobility() {
+    this.studentSetStatus('exam_recognition', 'Mobility ended');
+  }
+
+  private studentSetStatus(newStatus: string, message: string) {
+    this.applicationsApi.updateApplication(this.editApplicationId, {
+      status: newStatus,
+      date_arrived: this.start_date || undefined,
+      date_departure: this.end_date || undefined
+    }).subscribe({
+      next: res => {
+        if (res.status !== 'success') {
+          this.app.send_notification(res.error || 'Operation failed', 'error');
+          return;
+        }
+        this.status = newStatus;
+        this.app.send_notification(message, 'success');
+      },
+      error: err => this.app.send_notification(this.backendError(err, 'Operation failed'), 'error'),
+      complete: () => this.cdr.markForCheck()
+    });
+  }
+
+  onTranscriptSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (input.files?.length) {
+      this.transcriptFile = input.files[0];
+    }
+  }
+
+  // uploads the transcript of records during 'exam_recognition'
+  uploadTranscript() {
+    if (!this.transcriptFile) {
+      this.app.send_notification('Please select a transcript file', 'warning');
+      return;
+    }
+    this.applicationsApi.uploadApplicationDocument(this.editApplicationId, this.transcriptFile).subscribe({
+      next: res => {
+        if (res.status === 'success' && res.file_path) {
+          this.applicationsApi.insertApplicationDocument({
+            document_type: 'transcript',
+            file_path: res.file_path,
+            application_id: this.editApplicationId
+          }).subscribe({
+            next: () => {
+              this.transcriptFile = null;
+              this.app.send_notification('Transcript uploaded', 'success');
+              this.reloadTranscript();
+            },
+            error: err => this.app.send_notification(this.backendError(err, 'Could not save the transcript'), 'error'),
+            complete: () => this.cdr.markForCheck()
+          });
+        } else {
+          this.app.send_notification('Could not upload the transcript', 'error');
+        }
+      },
+      error: err => this.app.send_notification(this.backendError(err, 'Could not upload the transcript'), 'error'),
+      complete: () => this.cdr.markForCheck()
+    });
+  }
+
+  // reloads the transcript document after a successful upload
+  private reloadTranscript() {
+    this.applicationsApi.listApplicationDocuments(this.editApplicationId).subscribe({
+      next: res => {
+        const tor = res.find(d => d.document_type === 'transcript');
+        if (tor) this.existingTranscript = tor;
+      },
+      error: err => console.error(err),
+      complete: () => this.cdr.markForCheck()
+    });
   }
 }
 

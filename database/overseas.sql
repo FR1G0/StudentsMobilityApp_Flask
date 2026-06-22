@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict FBuXhKiC5jASwpCX0TSzZ50GO9c7qimmFcVh6ifdedUWdtIlGe96IKqf7LPgan8
+\restrict 7VHgpf0jOppCxLz3kd3ZGZJy0sjFYZBgHPchln2DRZaaObYNDH5EYqId5uegGaL
 
 -- Dumped from database version 17.10
 -- Dumped by pg_dump version 18.4
@@ -56,6 +56,46 @@ $$;
 ALTER FUNCTION public.check_application_close() OWNER TO myuser;
 
 --
+-- Name: check_application_data(); Type: FUNCTION; Schema: public; Owner: myuser
+--
+
+CREATE FUNCTION public.check_application_data() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+	-- valid referent, institution is checked by existing constraint
+	IF NEW.referent_id IS NOT NULL AND NOT EXISTS(
+		SELECT 1 
+        FROM users
+        WHERE id = NEW.referent_id 
+		AND role='referent' 
+	) THEN 
+        RAISE EXCEPTION 'application referent must have role=referent';
+	END IF;
+
+-- valid student, institution is checked by existing constraint
+	IF NOT EXISTS(
+		SELECT 1
+		FROM users
+		WHERE id=NEW.user_id
+		AND role='student'
+	) THEN
+        RAISE EXCEPTION 'application student must have role=student';
+	END IF;
+
+	-- student cannot create a application that is already past all the LA & exams validation process
+	IF TG_OP='INSERT' AND NEW.status NOT IN('created','learning_agreement_pending') THEN
+		RAISE EXCEPTION 'application status cannot start with %', NEW.status;
+	END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.check_application_data() OWNER TO myuser;
+
+--
 -- Name: check_application_pre_departure(); Type: FUNCTION; Schema: public; Owner: myuser
 --
 
@@ -92,25 +132,24 @@ $$;
 ALTER FUNCTION public.check_application_pre_departure() OWNER TO myuser;
 
 --
--- Name: check_application_referent(); Type: FUNCTION; Schema: public; Owner: myuser
+-- Name: check_document_status_update(); Type: FUNCTION; Schema: public; Owner: myuser
 --
 
-CREATE FUNCTION public.check_application_referent() RETURNS trigger
+CREATE FUNCTION public.check_document_status_update() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 DECLARE
-    ref_role VARCHAR(50);
+	app_status VARCHAR(32);
 BEGIN
-    IF NEW.referent_id IS NULL THEN
-        RETURN NEW;
-    END IF;
+    IF NEW.status IN ('approved', 'rejected') THEN
+		SELECT status INTO app_status
+		FROM applications
+		WHERE id = NEW.application_id;
+		IF app_status NOT IN ('created','learning_agreement_pending') THEN
+			RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
+		END IF;
 
-    SELECT role, id_institution INTO ref_role
-        FROM users
-        WHERE id = NEW.referent_id;
-
-    IF ref_role <> 'referent' THEN
-        RAISE EXCEPTION 'application referent must have role=referent';
+        NEW.decision_date := CURRENT_TIMESTAMP;
     END IF;
 
     RETURN NEW;
@@ -118,7 +157,7 @@ END;
 $$;
 
 
-ALTER FUNCTION public.check_application_referent() OWNER TO myuser;
+ALTER FUNCTION public.check_document_status_update() OWNER TO myuser;
 
 --
 -- Name: check_mapped_exam_institutions(); Type: FUNCTION; Schema: public; Owner: myuser
@@ -162,6 +201,36 @@ $$;
 ALTER FUNCTION public.check_mapped_exam_institutions() OWNER TO myuser;
 
 --
+-- Name: check_update_status_mapped_exams(); Type: FUNCTION; Schema: public; Owner: myuser
+--
+
+CREATE FUNCTION public.check_update_status_mapped_exams() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+	app_status VARCHAR(32);
+BEGIN
+    IF NEW.status IN ('approved', 'rejected') THEN
+		-- check if the application is on status 'learning_agreement_pending' or 'created'
+		SELECT status INTO app_status
+		FROM applications
+		WHERE id = NEW.application_id;
+		IF app_status NOT IN ('created','learning_agreement_pending') THEN
+			RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
+		END IF;
+
+        NEW.decision_date := CURRENT_TIMESTAMP;
+    END IF;
+
+
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.check_update_status_mapped_exams() OWNER TO myuser;
+
+--
 -- Name: mirror_partner_institution(); Type: FUNCTION; Schema: public; Owner: myuser
 --
 
@@ -185,44 +254,6 @@ $$;
 
 
 ALTER FUNCTION public.mirror_partner_institution() OWNER TO myuser;
-
---
--- Name: set_document_decision_date(); Type: FUNCTION; Schema: public; Owner: myuser
---
-
-CREATE FUNCTION public.set_document_decision_date() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-BEGIN
-    IF NEW.status IN ('approved', 'rejected') THEN
-        NEW.decision_date := CURRENT_TIMESTAMP;
-    END IF;
-
-    RETURN NEW;
-END;
-$$;
-
-
-ALTER FUNCTION public.set_document_decision_date() OWNER TO myuser;
-
---
--- Name: set_mapped_exam_decision_date(); Type: FUNCTION; Schema: public; Owner: myuser
---
-
-CREATE FUNCTION public.set_mapped_exam_decision_date() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-BEGIN
-    IF NEW.status IN ('approved', 'rejected') THEN
-        NEW.decision_date := CURRENT_TIMESTAMP;
-    END IF;
-
-    RETURN NEW;
-END;
-$$;
-
-
-ALTER FUNCTION public.set_mapped_exam_decision_date() OWNER TO myuser;
 
 --
 -- Name: update_application_on_upload(); Type: FUNCTION; Schema: public; Owner: myuser
@@ -698,11 +729,8 @@ COPY public.alembic_version (version_num) FROM stdin;
 --
 
 COPY public.applications (id, year, semester, status, date_submitted, sending_institution, host_institution, user_id, date_arrived, date_departure, notes, referent_id) FROM stdin;
-1	2026	first	created	\N	1	5	1	\N	\N		50
-2	2027	first	created	\N	1	4	1	\N	\N	test	51
-3	2026	full	created	\N	1	4	1	\N	\N		51
-4	2028	full	created	\N	1	6	1	\N	\N		\N
 5	2026	first	created	\N	1	5	1	2026-06-14	2026-06-24		50
+9	2026	full	pre_departure_completed	\N	1	5	1	2026-06-16	2026-06-23		51
 \.
 
 
@@ -847,9 +875,12 @@ COPY public.institutions (id, name, country, city) FROM stdin;
 --
 
 COPY public.mapped_exams (id, application_id, date_passed, grade, status, decision_date, notes, previous_id, host_exam_id, sending_exam_id) FROM stdin;
-1	5	\N	-1	pending	\N		-1	22	2
-4	5	\N	-1	pending	\N		-1	25	2
-11	5	\N	-1	pending	\N		-1	23	2
+67	5	\N	-1	pending	\N		-1	21	4
+66	5	\N	-1	pending	\N		-1	22	5
+69	9	\N	-1	approved	2026-06-21 19:04:11.246943+00		-1	22	3
+70	9	\N	-1	approved	2026-06-22 20:05:05.08656+00	a	-1	25	5
+71	9	\N	-1	approved	2026-06-22 20:05:06.501595+00	atat	-1	23	1
+68	9	\N	-1	approved	2026-06-22 20:06:36.905624+00		-1	21	2
 \.
 
 
@@ -904,7 +935,8 @@ COPY public.partner_institution (id, id_institution, id_partner_institution) FRO
 --
 
 COPY public.uploaded_documents (id, document_type, file_path, user_id, application_id, date_updated, status, decision_date, notes) FROM stdin;
-1	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/5/FRIGO_JOSEPH_Learning_Agreement.pdf	1	5	2026-06-20 20:41:37.676136+00	pending	\N	
+19	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/5/(OLD)FRIGO_JOSEPH_Learning_Agreement.pdf	1	5	2026-06-21 17:45:39.543985+00	approved	2026-06-21 17:46:09.668097+00	
+20	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/9/JOSEPH_FRIGO_learning-agreement-studies.pdf	1	9	2026-06-21 19:03:05.540362+00	approved	2026-06-22 20:05:08.34024+00	aa
 \.
 
 
@@ -1018,7 +1050,7 @@ COPY public.users (id, email, password_hash, role, firstname, lastname, id_insti
 -- Name: applications_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.applications_id_seq', 5, true);
+SELECT pg_catalog.setval('public.applications_id_seq', 9, true);
 
 
 --
@@ -1039,7 +1071,7 @@ SELECT pg_catalog.setval('public.institutions_id_seq', 1, false);
 -- Name: mapped_exams_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.mapped_exams_id_seq', 13, true);
+SELECT pg_catalog.setval('public.mapped_exams_id_seq', 71, true);
 
 
 --
@@ -1053,7 +1085,7 @@ SELECT pg_catalog.setval('public.partner_institution_id_seq', 38, true);
 -- Name: uploaded_documents_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.uploaded_documents_id_seq', 2, true);
+SELECT pg_catalog.setval('public.uploaded_documents_id_seq', 20, true);
 
 
 --
@@ -1104,19 +1136,27 @@ ALTER TABLE ONLY public.institutions
 
 
 --
--- Name: mapped_exams mapped_exams_application_id_host_exam_id_sending_exam_id_key; Type: CONSTRAINT; Schema: public; Owner: myuser
---
-
-ALTER TABLE ONLY public.mapped_exams
-    ADD CONSTRAINT mapped_exams_application_id_host_exam_id_sending_exam_id_key UNIQUE (application_id, host_exam_id, sending_exam_id);
-
-
---
 -- Name: mapped_exams mapped_exams_pkey; Type: CONSTRAINT; Schema: public; Owner: myuser
 --
 
 ALTER TABLE ONLY public.mapped_exams
     ADD CONSTRAINT mapped_exams_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: mapped_exams mapped_exams_unique_application_id_host_exam_id; Type: CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.mapped_exams
+    ADD CONSTRAINT mapped_exams_unique_application_id_host_exam_id UNIQUE (application_id, host_exam_id);
+
+
+--
+-- Name: mapped_exams mapped_exams_unique_application_id_sending_exam_id; Type: CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.mapped_exams
+    ADD CONSTRAINT mapped_exams_unique_application_id_sending_exam_id UNIQUE (application_id, sending_exam_id);
 
 
 --
@@ -1308,6 +1348,13 @@ CREATE TRIGGER application_close_check BEFORE UPDATE ON public.applications FOR 
 
 
 --
+-- Name: applications application_data_check; Type: TRIGGER; Schema: public; Owner: myuser
+--
+
+CREATE TRIGGER application_data_check BEFORE INSERT OR UPDATE ON public.applications FOR EACH ROW EXECUTE FUNCTION public.check_application_data();
+
+
+--
 -- Name: applications application_pre_departure_check; Type: TRIGGER; Schema: public; Owner: myuser
 --
 
@@ -1315,17 +1362,10 @@ CREATE TRIGGER application_pre_departure_check BEFORE UPDATE ON public.applicati
 
 
 --
--- Name: applications application_referent_check; Type: TRIGGER; Schema: public; Owner: myuser
+-- Name: uploaded_documents document_status_update_check; Type: TRIGGER; Schema: public; Owner: myuser
 --
 
-CREATE TRIGGER application_referent_check BEFORE INSERT OR UPDATE ON public.applications FOR EACH ROW EXECUTE FUNCTION public.check_application_referent();
-
-
---
--- Name: mapped_exams mapped_exam_decision_date; Type: TRIGGER; Schema: public; Owner: myuser
---
-
-CREATE TRIGGER mapped_exam_decision_date BEFORE UPDATE ON public.mapped_exams FOR EACH ROW WHEN (((old.status)::text <> (new.status)::text)) EXECUTE FUNCTION public.set_mapped_exam_decision_date();
+CREATE TRIGGER document_status_update_check BEFORE UPDATE ON public.uploaded_documents FOR EACH ROW WHEN (((old.status)::text <> (new.status)::text)) EXECUTE FUNCTION public.check_document_status_update();
 
 
 --
@@ -1336,6 +1376,13 @@ CREATE TRIGGER mapped_exam_institutions_check BEFORE INSERT OR UPDATE ON public.
 
 
 --
+-- Name: mapped_exams mapped_exam_update_status_check; Type: TRIGGER; Schema: public; Owner: myuser
+--
+
+CREATE TRIGGER mapped_exam_update_status_check BEFORE UPDATE ON public.mapped_exams FOR EACH ROW WHEN (((old.status)::text <> (new.status)::text)) EXECUTE FUNCTION public.check_update_status_mapped_exams();
+
+
+--
 -- Name: partner_institution partner_institution_symmetry; Type: TRIGGER; Schema: public; Owner: myuser
 --
 
@@ -1343,10 +1390,11 @@ CREATE TRIGGER partner_institution_symmetry AFTER INSERT ON public.partner_insti
 
 
 --
--- Name: uploaded_documents uploaded_document_decision_date; Type: TRIGGER; Schema: public; Owner: myuser
+-- Name: applications application_valid_referent; Type: FK CONSTRAINT; Schema: public; Owner: myuser
 --
 
-CREATE TRIGGER uploaded_document_decision_date BEFORE UPDATE ON public.uploaded_documents FOR EACH ROW WHEN (((old.status)::text <> (new.status)::text)) EXECUTE FUNCTION public.set_document_decision_date();
+ALTER TABLE ONLY public.applications
+    ADD CONSTRAINT application_valid_referent FOREIGN KEY (referent_id, sending_institution) REFERENCES public.users(id, id_institution);
 
 
 --
@@ -1387,6 +1435,14 @@ ALTER TABLE ONLY public.applications
 
 ALTER TABLE ONLY public.applications
     ADD CONSTRAINT applications_user_id_sending_institution_fkey FOREIGN KEY (user_id, sending_institution) REFERENCES public.users(id, id_institution);
+
+
+--
+-- Name: applications applications_valid_partners; Type: FK CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.applications
+    ADD CONSTRAINT applications_valid_partners FOREIGN KEY (sending_institution, host_institution) REFERENCES public.partner_institution(id_institution, id_partner_institution) ON UPDATE CASCADE;
 
 
 --
@@ -1486,5 +1542,5 @@ REFRESH MATERIALIZED VIEW public.mv_institution_activity;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict FBuXhKiC5jASwpCX0TSzZ50GO9c7qimmFcVh6ifdedUWdtIlGe96IKqf7LPgan8
+\unrestrict 7VHgpf0jOppCxLz3kd3ZGZJy0sjFYZBgHPchln2DRZaaObYNDH5EYqId5uegGaL
 
