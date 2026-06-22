@@ -1,6 +1,6 @@
 import datetime
 import jwt
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, jsonify, request, current_app, g
 from sqlalchemy import text
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -41,6 +41,7 @@ def login():
 # returns the list of all the users inside the database
 @users_blueprint.route("/user", methods=["GET"])
 @custom_jwt_required()
+@require_roles(ROLE_OVERSEAS)
 def all_users():
     try:
         users = User.query.all()
@@ -58,6 +59,10 @@ def all_users():
 @custom_jwt_required()
 def get_user(id):
     try:
+        # only the office may look up arbitrary users; everyone else only themselves
+        if g.current_user_role != ROLE_OVERSEAS and g.current_user_id != id:
+            return jsonify({"error": "not authorized"}), 403
+
         user = User.query.get(id)
         if not user:
             return jsonify({"error": "user not found"}), 404
@@ -70,6 +75,7 @@ def get_user(id):
 # returns the list of users whose firstname matches the given name
 @users_blueprint.route("/user/name:<string:name>", methods=["GET"])
 @custom_jwt_required()
+@require_roles(ROLE_OVERSEAS)
 def get_user_by_name(name):
     try:
         result = (
@@ -101,6 +107,7 @@ def get_user_by_name(name):
 # returns a single user matching firstname and lastname
 @users_blueprint.route("/user/<string:name>/<string:surname>", methods=["GET"])
 @custom_jwt_required()
+@require_roles(ROLE_OVERSEAS)
 def get_user_by_email(name, surname):
     try:
         user = User.query.filter(

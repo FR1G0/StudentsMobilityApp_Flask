@@ -294,3 +294,21 @@ CREATE TRIGGER partner_institution_symmetry
 AFTER INSERT ON partner_institution
 FOR EACH ROW
 	EXECUTE FUNCTION mirror_partner_institution();
+
+
+-- when the status of a la_modification changes to 'approved' or 'rejected', automatically stamps decision_date with the current timestamp.
+CREATE OR REPLACE FUNCTION set_modification_decision_date() RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status IN ('approved', 'rejected') THEN
+        NEW.decision_date := CURRENT_TIMESTAMP;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER la_modification_decision_date
+BEFORE UPDATE ON la_modifications
+FOR EACH ROW
+WHEN (OLD.status <> NEW.status)
+	EXECUTE FUNCTION set_modification_decision_date();

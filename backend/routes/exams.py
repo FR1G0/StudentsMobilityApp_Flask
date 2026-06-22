@@ -7,6 +7,7 @@ from auth import (
     ROLE_OVERSEAS,
     ROLE_REFERENT,
     ROLE_STUDENT,
+    can_view_application,
     custom_jwt_required,
     require_roles,
 )
@@ -91,11 +92,20 @@ def delete_exam(id):
 # inserts a new mapped_exams row linking a host exam and a sending exam for an application
 @exams_blueprint.route("/exam/mapping/insert/<int:application_id>", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_STUDENT)
 def insert_mapped_exam(application_id):
     try:
         data = request.get_json()
         if not data:
             return jsonify({"status": "failed", "error": "missing body"}), 400
+
+        application = Application.query.get(application_id)
+        if not application:
+            return jsonify({"status": "failed", "error": "application not found"}), 404
+        if not can_view_application(application, g.current_user, g.current_user_role):
+            return jsonify(
+                {"status": "failed", "error": "cannot add a mapping to this application"}
+            ), 403
 
         new_mapping = MappedExam(
             application_id=application_id,
@@ -145,6 +155,14 @@ def update_mapped_exam_status(id):
         mapping = MappedExam.query.get(id)
         if not mapping:
             return jsonify({"status": "failed", "error": "mapping not found"}), 404
+
+        application = Application.query.get(mapping.application_id)
+        if not application:
+            return jsonify({"status": "failed", "error": "application not found"}), 404
+        if not can_view_application(application, g.current_user, g.current_user_role):
+            return jsonify(
+                {"status": "failed", "error": "cannot decide on this exam"}
+            ), 403
 
         if "status" in data:
             mapping.status = data["status"]
