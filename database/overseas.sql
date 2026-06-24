@@ -1433,6 +1433,13 @@ CREATE TRIGGER mapped_exam_update_status_check BEFORE UPDATE ON public.mapped_ex
 
 
 --
+-- Name: mapped_exams mapped_exam_update_status_check; Type: TRIGGER; Schema: public; Owner: myuser
+--
+
+CREATE TRIGGER mapped_exam_update_status_check BEFORE UPDATE ON public.mapped_exams FOR EACH ROW WHEN (((old.status)::text <> (new.status)::text)) EXECUTE FUNCTION public.check_update_status_mapped_exams();
+
+
+--
 -- Name: partner_institution partner_institution_symmetry; Type: TRIGGER; Schema: public; Owner: myuser
 --
 
