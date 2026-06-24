@@ -11,7 +11,7 @@ from auth import (
     custom_jwt_required,
     require_roles,
 )
-from models import db, Application, UploadedDocument, MappedExam
+from models import db, Application, User, Institution, UploadedDocument, MappedExam
 
 applications_blueprint = Blueprint("applications", __name__)
 
@@ -176,10 +176,34 @@ def post_update_application(id):
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
 
-        if not can_view_application(application, g.current_user, g.current_user_role):
+        role = g.current_user_role
+
+        if not can_view_application(application, g.current_user, role):
             return jsonify(
                 {"status": "failed", "error": "cannot modify this application"}
             ), 403
+
+
+        # check student
+        if role==ROLE_STUDENT:
+            if "status" in data and data["status"] not in ("mobility_ongoing", "exam_recognition"):
+                return jsonify({"status": "failed", "error": "student cannot set this status"}), 403
+
+        # check referent
+        if role==ROLE_REFERENT:
+            referent_allowed_fields = {"status", "notes"}
+            if set(data.keys()) - referent_allowed_fields:
+                return jsonify({"status": "failed", "error": "referent can only change status"}), 403
+            if "status" in data and data["status"] not in ("created", "learning_agreement_pending"):
+                return jsonify({"status": "failed", "error": "referent cannot set this status"}), 403
+
+        # check staff
+        if role==ROLE_OVERSEAS:
+            overseas_allowed_fields = {"status"}
+            if set(data.keys()) - overseas_allowed_fields:
+                return jsonify({"status": "failed", "error": "staff can only change status"}), 403
+            if "status" in data and data["status"] not in ("pre_departure_completed", "closed"):
+                return jsonify({"status": "failed", "error": "staff cannot set this status"}), 403
 
         if "year" in data:
             application.year = data["year"]

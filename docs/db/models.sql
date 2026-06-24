@@ -79,7 +79,13 @@ CREATE TABLE applications (
 		'mobility_ongoing',
 		'exam_recognition',
 		'closed'
-	))
+	)),
+	CONSTRAINT valid_ongoing CHECK(
+		NOT(status='mobility_ongoing' AND date_arrived IS NULL )
+	),
+	CONSTRAINT valid_recognition CHECK(
+		NOT(status='exam_recognition' AND date_departure IS NULL )
+	)
 	-- TODO: CONSTRAINTS: check if host institution is user id's institution
 );
 

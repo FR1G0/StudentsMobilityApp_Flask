@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 7VHgpf0jOppCxLz3kd3ZGZJy0sjFYZBgHPchln2DRZaaObYNDH5EYqId5uegGaL
+\restrict 08onwZCvhM0ELc7ygGxFrMtvoF6daOY9GBFJ4haoQkTuLbyexsQt79Y5BrtIBoR
 
 -- Dumped from database version 17.10
 -- Dumped by pg_dump version 18.4
@@ -96,40 +96,77 @@ $$;
 ALTER FUNCTION public.check_application_data() OWNER TO myuser;
 
 --
--- Name: check_application_pre_departure(); Type: FUNCTION; Schema: public; Owner: myuser
+-- Name: check_application_status_workflow(); Type: FUNCTION; Schema: public; Owner: myuser
 --
 
-CREATE FUNCTION public.check_application_pre_departure() RETURNS trigger
+CREATE FUNCTION public.check_application_status_workflow() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
-	-- check if LA exist and is approved
-	IF NOT EXISTS (
-		SELECT 1
-		FROM uploaded_documents
-		WHERE application_id = NEW.id
-		  AND document_type = 'learning_agreement'
-		  AND status = 'approved'
-	) THEN
-		RAISE EXCEPTION 'cannot move to pre_departure_completed without an approved learning agreement';
+
+	-- learning_agreement_pending -> pre_departure_completed
+	IF NEW.status='pre_departure_completed' AND OLD.status='learning_agreement_pending' THEN
+		-- check if associated learning agreement exists and has been approved
+		IF NOT EXISTS ( SELECT 1 
+				FROM uploaded_documents
+				WHERE application_id=NEW.id 
+				AND document_type='learning_agreement'
+				AND status='approved'
+			) THEN
+			RAISE EXCEPTION 'approved learning agreement for the application is required';
+		END IF;
+
+		-- check if mapped exams exists and are all approved (search for at least 1 that has not been approved)
+		IF EXISTS (SELECT 1
+			FROM mapped_exams
+			WHERE application_id=NEW.id
+			AND status<>'approved'
+			) THEN
+			RAISE EXCEPTION 'all mapped exams of the application must be approved';
+		END IF;
+	ELSE 
+		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 
-	-- check if there's an exam that's not been approved
-	IF EXISTS (
-		SELECT 1
-		FROM mapped_exams
-		WHERE application_id = NEW.id
-		  AND status <> 'approved'
-	) THEN
-		RAISE EXCEPTION 'cannot move to pre_departure_completed: all mapped exams must be approved';
+	-- pre_departure_completed -> mobility_ongoing
+	IF NEW.status='mobility_ongoing' AND OLD.status<>'pre_departure_completed' THEN
+		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
+	END IF;
+	
+	-- mobility_ongoing -> exam_recognition
+	IF NEW.status='exam_recognition' AND OLD.status<>'mobility_ongoing' THEN
+		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 
-    RETURN NEW;
+	IF NEW.status='closed' AND OLD.status='exam_recognition' THEN
+		-- check uploaded transcript of records, if it exists and has been approved
+		IF NOT EXISTS (SELECT 1
+			FROM uploaded_documents
+			WHERE application_id=NEW.id
+			AND document_type='transcript'
+			AND status='approved'
+			) THEN
+			RAISE EXCEPTION 'approved transcript of records required';
+		END IF;
+
+		-- check if all mapped_exams are graded (if exists at least 1 that has no grade)
+		IF EXISTS(SELECT 1
+				FROM mapped_exams
+				WHERE application_id=NEW.id
+				AND grade IS NULL OR grade=-1
+			) THEN
+			RAISE EXCEPTION 'all exams must requre a grade';
+		END IF;
+	ELSE
+		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
+	END IF;
+
+	RETURN NEW;
 END;
 $$;
 
 
-ALTER FUNCTION public.check_application_pre_departure() OWNER TO myuser;
+ALTER FUNCTION public.check_application_status_workflow() OWNER TO myuser;
 
 --
 -- Name: check_document_status_update(); Type: FUNCTION; Schema: public; Owner: myuser
@@ -141,12 +178,21 @@ CREATE FUNCTION public.check_document_status_update() RETURNS trigger
 DECLARE
 	app_status VARCHAR(32);
 BEGIN
+	SELECT status INTO app_status
+	FROM applications
+	WHERE id = NEW.application_id;
+
     IF NEW.status IN ('approved', 'rejected') THEN
-		SELECT status INTO app_status
-		FROM applications
-		WHERE id = NEW.application_id;
-		IF app_status NOT IN ('created','learning_agreement_pending') THEN
-			RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
+		-- prevent status change when application is not in adequate status 
+		IF NEW.document_type='learning_agreement' THEN
+			IF app_status NOT IN ('created','learning_agreement_pending') THEN
+				RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
+			END IF;
+		END IF;
+		IF NEW.document_type='transcript' THEN
+			IF app_status <> 'exam_recognition' THEN
+				RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
+			END IF;
 		END IF;
 
         NEW.decision_date := CURRENT_TIMESTAMP;
@@ -324,7 +370,9 @@ CREATE TABLE public.applications (
     date_arrived date,
     date_departure date,
     notes text,
-    referent_id integer
+    referent_id integer,
+    CONSTRAINT valid_ongoing CHECK ((NOT (((status)::text = 'mobility_ongoing'::text) AND (date_arrived IS NULL)))),
+    CONSTRAINT valid_recognition CHECK ((NOT (((status)::text = 'exam_recognition'::text) AND (date_departure IS NULL))))
 );
 
 
@@ -729,8 +777,8 @@ COPY public.alembic_version (version_num) FROM stdin;
 --
 
 COPY public.applications (id, year, semester, status, date_submitted, sending_institution, host_institution, user_id, date_arrived, date_departure, notes, referent_id) FROM stdin;
-5	2026	first	created	\N	1	5	1	2026-06-14	2026-06-24		50
-9	2026	full	pre_departure_completed	\N	1	5	1	2026-06-16	2026-06-23		51
+9	2026	full	closed	\N	1	5	1	2026-06-17	2026-06-23		51
+5	2026	first	closed	\N	1	5	1	2026-06-14	2026-06-24		50
 \.
 
 
@@ -875,12 +923,12 @@ COPY public.institutions (id, name, country, city) FROM stdin;
 --
 
 COPY public.mapped_exams (id, application_id, date_passed, grade, status, decision_date, notes, previous_id, host_exam_id, sending_exam_id) FROM stdin;
-67	5	\N	-1	pending	\N		-1	21	4
-66	5	\N	-1	pending	\N		-1	22	5
 69	9	\N	-1	approved	2026-06-21 19:04:11.246943+00		-1	22	3
 70	9	\N	-1	approved	2026-06-22 20:05:05.08656+00	a	-1	25	5
 71	9	\N	-1	approved	2026-06-22 20:05:06.501595+00	atat	-1	23	1
 68	9	\N	-1	approved	2026-06-22 20:06:36.905624+00		-1	21	2
+67	5	\N	-1	approved	2026-06-22 21:11:47.752494+00		-1	21	4
+66	5	\N	-1	approved	2026-06-22 21:11:48.48415+00		-1	22	5
 \.
 
 
@@ -935,8 +983,10 @@ COPY public.partner_institution (id, id_institution, id_partner_institution) FRO
 --
 
 COPY public.uploaded_documents (id, document_type, file_path, user_id, application_id, date_updated, status, decision_date, notes) FROM stdin;
-19	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/5/(OLD)FRIGO_JOSEPH_Learning_Agreement.pdf	1	5	2026-06-21 17:45:39.543985+00	approved	2026-06-21 17:46:09.668097+00	
 20	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/9/JOSEPH_FRIGO_learning-agreement-studies.pdf	1	9	2026-06-21 19:03:05.540362+00	approved	2026-06-22 20:05:08.34024+00	aa
+21	transcript	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/9/Bando_Unico_DJD_2025_def.pdf	1	9	2026-06-22 21:00:18.156059+00	approved	2026-06-22 21:10:27.34826+00	sd
+19	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/5/(OLD)FRIGO_JOSEPH_Learning_Agreement.pdf	1	5	2026-06-21 17:45:39.543985+00	approved	2026-06-22 21:11:49.346143+00	
+22	transcript	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/5/StampaAutocertificazione.pdf	1	5	2026-06-22 21:13:17.098005+00	approved	2026-06-22 21:14:12.625443+00	
 \.
 
 
@@ -1085,7 +1135,7 @@ SELECT pg_catalog.setval('public.partner_institution_id_seq', 38, true);
 -- Name: uploaded_documents_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.uploaded_documents_id_seq', 20, true);
+SELECT pg_catalog.setval('public.uploaded_documents_id_seq', 22, true);
 
 
 --
@@ -1334,6 +1384,13 @@ CREATE INDEX idx_users_institution_role ON public.users USING btree (id_institut
 
 
 --
+-- Name: applications applicaiton_status_workflow; Type: TRIGGER; Schema: public; Owner: myuser
+--
+
+CREATE TRIGGER applicaiton_status_workflow BEFORE UPDATE ON public.applications FOR EACH ROW WHEN (((new.status)::text <> (old.status)::text)) EXECUTE FUNCTION public.check_application_status_workflow();
+
+
+--
 -- Name: uploaded_documents applicaiton_update_on_upload; Type: TRIGGER; Schema: public; Owner: myuser
 --
 
@@ -1355,13 +1412,6 @@ CREATE TRIGGER application_data_check BEFORE INSERT OR UPDATE ON public.applicat
 
 
 --
--- Name: applications application_pre_departure_check; Type: TRIGGER; Schema: public; Owner: myuser
---
-
-CREATE TRIGGER application_pre_departure_check BEFORE UPDATE ON public.applications FOR EACH ROW WHEN ((((old.status)::text <> (new.status)::text) AND ((new.status)::text = 'pre_departure_completed'::text))) EXECUTE FUNCTION public.check_application_pre_departure();
-
-
---
 -- Name: uploaded_documents document_status_update_check; Type: TRIGGER; Schema: public; Owner: myuser
 --
 
@@ -1373,6 +1423,13 @@ CREATE TRIGGER document_status_update_check BEFORE UPDATE ON public.uploaded_doc
 --
 
 CREATE TRIGGER mapped_exam_institutions_check BEFORE INSERT OR UPDATE ON public.mapped_exams FOR EACH ROW EXECUTE FUNCTION public.check_mapped_exam_institutions();
+
+
+--
+-- Name: mapped_exams mapped_exam_update_status_check; Type: TRIGGER; Schema: public; Owner: myuser
+--
+
+CREATE TRIGGER mapped_exam_update_status_check BEFORE UPDATE ON public.mapped_exams FOR EACH ROW WHEN (((old.status)::text <> (new.status)::text)) EXECUTE FUNCTION public.check_update_status_mapped_exams();
 
 
 --
@@ -1542,5 +1599,5 @@ REFRESH MATERIALIZED VIEW public.mv_institution_activity;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 7VHgpf0jOppCxLz3kd3ZGZJy0sjFYZBgHPchln2DRZaaObYNDH5EYqId5uegGaL
+\unrestrict 08onwZCvhM0ELc7ygGxFrMtvoF6daOY9GBFJ4haoQkTuLbyexsQt79Y5BrtIBoR
 
