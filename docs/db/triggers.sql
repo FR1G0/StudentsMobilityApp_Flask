@@ -112,101 +112,78 @@ FOR EACH ROW
 	EXECUTE FUNCTION check_application_data();
 
 
--- when an application transitions to status 'pre_departure_completed', verifies that an approved learning_agreement document exists for that application and that all mapped exams were approved.
-CREATE OR REPLACE FUNCTION check_application_pre_departure() RETURNS TRIGGER AS $$
-BEGIN
-	-- check if LA exist and is approved
-	IF NOT EXISTS (
-		SELECT 1
-		FROM uploaded_documents
-		WHERE application_id = NEW.id
-		  AND document_type = 'learning_agreement'
-		  AND status = 'approved'
-	) THEN
-		RAISE EXCEPTION 'cannot move to pre_departure_completed without an approved learning agreement';
-	END IF;
-
-	-- check if there's an exam that's not been approved
-	IF EXISTS (
-		SELECT 1
-		FROM mapped_exams
-		WHERE application_id = NEW.id
-		  AND status <> 'approved'
-	) THEN
-		RAISE EXCEPTION 'cannot move to pre_departure_completed: all mapped exams must be approved';
-	END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER application_pre_departure_check
-BEFORE UPDATE ON applications
-FOR EACH ROW
-	WHEN (OLD.status <> NEW.status AND NEW.status = 'pre_departure_completed')
-	EXECUTE FUNCTION check_application_pre_departure();
-
-
--- WHAT: when an application transitions to status 'closed', verifies that
---   1) an approved transcript document exists, AND
---   2) no mapped_exam rows are still in a non-approved state.
-CREATE OR REPLACE FUNCTION check_application_close() RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.status = 'closed' THEN
-        IF NOT EXISTS (
-            SELECT 1
-            FROM uploaded_documents
-            WHERE application_id = NEW.id
-              AND document_type = 'transcript'
-              AND status = 'approved'
-        ) THEN
-            RAISE EXCEPTION 'cannot close application without an approved transcript of records';
-        END IF;
-
-        IF EXISTS (
-            SELECT 1
-            FROM mapped_exams
-            WHERE application_id = NEW.id
-              AND status <> 'approved'
-        ) THEN
-            RAISE EXCEPTION 'cannot close application: all mapped exams must be approved';
-        END IF;
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER application_close_check
-BEFORE UPDATE ON applications
-FOR EACH ROW
-WHEN (OLD.status <> NEW.status AND NEW.status = 'closed')
-	EXECUTE FUNCTION check_application_close();
-
 -- student puts application into ongoing or exam_recognition
-CREATE OR REPLACE FUNCTION check_student_applicaiton_workflow() RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION check_application_status_workflow() RETURNS TRIGGER AS $$
 BEGIN
-	IF NEW.status='mobility_ongoing' THEN
-		-- pre-dept -> ongoing
-		IF NEW.date_arrived IS NULL OR NEW.date_arrived = '' THEN
-			RAISE EXCEPTION 'arrival date required';
+
+	-- learning_agreement_pending -> pre_departure_completed
+	IF NEW.status='pre_departure_completed' AND OLD.status='learning_agreement_pending' THEN
+		-- check if associated learning agreement exists and has been approved
+		IF NOT EXISTS ( SELECT 1 
+				FROM uploaded_documents
+				WHERE application_id=NEW.id 
+				AND document_type='learning_agreement'
+				AND status='approved'
+			) THEN
+			RAISE EXCEPTION 'cannot move to pre_departure_completed without an approved learning agreement';
+		END IF;
+
+		-- check if mapped exams exists and are all approved (search for at least 1 that has not been approved)
+		IF EXISTS (SELECT 1
+			FROM mapped_exams
+			WHERE application_id=NEW.id
+			AND status<>'approved'
+			) THEN
+			RAISE EXCEPTION 'cannot move to pre_departure_completed: all mapped exams must be approved';
+		END IF;
+	ELSE 
+		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
+	END IF;
+
+	-- pre_departure_completed -> mobility_ongoing
+	IF NEW.status='mobility_ongoing' AND OLD.status<>'pre_departure_completed' THEN
+		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
+	END IF;
+	
+	-- mobility_ongoing -> exam_recognition
+	IF NEW.status='exam_recognition' AND OLD.status<>'mobility_ongoing' THEN
+		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
+	END IF;
+
+	IF NEW.status='closed' AND OLD.status='exam_recognition' THEN
+		-- check uploaded transcript of records, if it exists and has been approved
+		IF NOT EXISTS (SELECT 1
+			FROM uploaded_documents
+			WHERE application_id=NEW.id
+			AND document_type='transcript'
+			AND status='approved'
+			) THEN
+			RAISE EXCEPTION 'approved transcript of records required';
+		END IF;
+
+		-- check if all mapped_exams are graded (if exists at least 1 that has no grade)
+		IF EXISTS(SELECT 1
+				FROM mapped_exams
+				WHERE application_id=NEW.id
+				AND grade IS NULL 
+				OR grade=-1
+				OR status <> 'approved'
+			) THEN
+			RAISE EXCEPTION 'all exams must be approved and require a grade';
 		END IF;
 	ELSE
-		-- ongoing -> recognition
-		IF NEW.date_departure IS NULL OR NEW.date_departure = '' THEN
-			RAISE EXCEPTION 'departure date required';
-		END IF;
+		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 
 	RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER application_student_changes
+CREATE TRIGGER applicaiton_status_workflow 
 BEFORE UPDATE ON applications
 FOR EACH ROW
-	WHEN (NEW.status='mobility_ongoing' OR NEW.status='exam_recognition')
-	EXECUTE FUNCTION  check_student_applicaiton_workflow();
+	WHEN (NEW.status<>OLD.status)
+	EXECUTE FUNCTION  check_application_status_workflow();
 
 -- when the status of a mapped_exam changes to 'approved' or 'rejected', automatically stamps decision_date with the current timestamp.
 CREATE OR REPLACE FUNCTION check_update_status_mapped_exams() RETURNS TRIGGER AS $$
@@ -273,7 +250,7 @@ WHEN (OLD.status <> NEW.status)
 	EXECUTE FUNCTION check_document_status_update();
 
 
--- WHAT: after an INSERT on partner_institution, automatically inserts the reciprocal row (B -> A) if it does not already exist, so that partnership is always symmetrical in the data.
+-- after an INSERT on partner_institution, automatically inserts the reciprocal row (B -> A) if it does not already exist, so that partnership is always symmetrical in the data.
 CREATE OR REPLACE FUNCTION mirror_partner_institution() RETURNS TRIGGER AS $$
 BEGIN
     IF NOT EXISTS (
