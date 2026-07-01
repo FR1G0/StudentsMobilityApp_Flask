@@ -7,10 +7,11 @@ from auth import (
     ROLE_OVERSEAS,
     ROLE_REFERENT,
     ROLE_STUDENT,
+    can_view_application,
     custom_jwt_required,
     require_roles,
 )
-from models import db, Application, UploadedDocument, MappedExam
+from models import db, Application, User, Institution, UploadedDocument, MappedExam
 
 applications_blueprint = Blueprint("applications", __name__)
 
@@ -24,21 +25,6 @@ UPLOADS_BASE_DIR = os.path.join(
 
 def _application_upload_dir(application_id):
     return os.path.join(UPLOADS_BASE_DIR, str(application_id))
-
-
-# Authorization rule shared by the document routes: who may access an application
-# (and therefore its uploaded files).
-#   student  -> only their own applications
-#   referent -> only applications they are referent for
-#   overseas -> only applications hosted by their institution
-def _can_view_application(application, user, role):
-    if role == ROLE_STUDENT:
-        return application.user_id == user.id
-    if role == ROLE_REFERENT:
-        return application.referent_id == user.id
-    if role == ROLE_OVERSEAS:
-        return application.host_institution == user.id_institution
-    return False
 
 
 # NOTE: [GET] /applications
@@ -179,7 +165,7 @@ def insert_application():
 # updates the fields of an existing application row using the json body
 @applications_blueprint.route("/application/update/<int:id>", methods=["POST"])
 @custom_jwt_required()
-@require_roles(ROLE_STUDENT, ROLE_REFERENT)
+@require_roles(ROLE_STUDENT, ROLE_REFERENT, ROLE_OVERSEAS)
 def post_update_application(id):
     try:
         data = request.get_json()
@@ -189,6 +175,35 @@ def post_update_application(id):
         application = Application.query.get(id)
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
+
+        role = g.current_user_role
+
+        if not can_view_application(application, g.current_user, role):
+            return jsonify(
+                {"status": "failed", "error": "cannot modify this application"}
+            ), 403
+
+
+        # check student
+        if role==ROLE_STUDENT:
+            if "status" in data and data["status"] not in ("mobility_ongoing", "exam_recognition"):
+                return jsonify({"status": "failed", "error": "student cannot set this status"}), 403
+
+        # check referent
+        if role==ROLE_REFERENT:
+            referent_allowed_fields = {"status", "notes"}
+            if set(data.keys()) - referent_allowed_fields:
+                return jsonify({"status": "failed", "error": "referent can only change status"}), 403
+            if "status" in data and data["status"] not in ("created", "learning_agreement_pending"):
+                return jsonify({"status": "failed", "error": "referent cannot set this status"}), 403
+
+        # check staff
+        if role==ROLE_OVERSEAS:
+            overseas_allowed_fields = {"status"}
+            if set(data.keys()) - overseas_allowed_fields:
+                return jsonify({"status": "failed", "error": "staff can only change status"}), 403
+            if "status" in data and data["status"] not in ("pre_departure_completed", "closed"):
+                return jsonify({"status": "failed", "error": "staff cannot set this status"}), 403
 
         if "year" in data:
             application.year = data["year"]
@@ -230,13 +245,13 @@ def post_update_application(id):
 @custom_jwt_required()
 @require_roles(ROLE_STUDENT, ROLE_OVERSEAS)
 def delete_application(id):
-    role = g.current_user_role
     try:
         application = Application.query.get(id)
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
 
-        if role == ROLE_STUDENT and application.user_id != g.current_user_id:
+        # students delete only their own; staff only apps hosted by their institution
+        if not can_view_application(application, g.current_user, g.current_user_role):
             return jsonify(
                 {"status": "failed", "error": "cannot delete this application"}
             ), 403
@@ -296,7 +311,7 @@ def list_application_documents(id):
         application = Application.query.get(id)
         if not application:
             return jsonify({"error": "application not found"}), 404
-        if not _can_view_application(application, g.current_user, g.current_user_role):
+        if not can_view_application(application, g.current_user, g.current_user_role):
             return jsonify({"error": "not authorized for this application"}), 403
 
         documents = UploadedDocument.query.filter_by(application_id=id).all()
@@ -338,7 +353,7 @@ def insert_application_document():
         application = Application.query.get(data.get("application_id"))
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
-        if not _can_view_application(application, g.current_user, g.current_user_role):
+        if not can_view_application(application, g.current_user, g.current_user_role):
             return jsonify(
                 {"status": "failed", "error": "cannot upload to this application"}
             ), 403
@@ -372,7 +387,7 @@ def upload_application_document():
         application = Application.query.get(application_id)
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
-        if not _can_view_application(application, g.current_user, g.current_user_role):
+        if not can_view_application(application, g.current_user, g.current_user_role):
             return jsonify(
                 {"status": "failed", "error": "cannot upload to this application"}
             ), 403
@@ -407,7 +422,7 @@ def delete_application_document(id):
         application = Application.query.get(doc.application_id)
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
-        if not _can_view_application(application, g.current_user, g.current_user_role):
+        if not can_view_application(application, g.current_user, g.current_user_role):
             return jsonify(
                 {"status": "failed", "error": "cannot delete this document"}
             ), 403
@@ -477,7 +492,7 @@ def download_application_document(id):
     application = Application.query.get(doc.application_id)
     if not application:
         return jsonify({"error": "application not found"}), 404
-    if not _can_view_application(application, g.current_user, g.current_user_role):
+    if not can_view_application(application, g.current_user, g.current_user_role):
         return jsonify({"error": "not authorized for this document"}), 403
 
     file_path = doc.file_path
@@ -556,6 +571,12 @@ def decide_application_document(id):
 @custom_jwt_required()
 def list_application_exam_mappings(application_id):
     try:
+        application = Application.query.get(application_id)
+        if not application:
+            return jsonify({"error": "application not found"}), 404
+        if not can_view_application(application, g.current_user, g.current_user_role):
+            return jsonify({"error": "not authorized for this application"}), 403
+
         mappings = MappedExam.query.filter_by(application_id=application_id).all()
         result = []
         for mapping in mappings:

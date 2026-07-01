@@ -79,7 +79,13 @@ CREATE TABLE applications (
 		'mobility_ongoing',
 		'exam_recognition',
 		'closed'
-	))
+	)),
+	CONSTRAINT valid_ongoing CHECK(
+		NOT(status='mobility_ongoing' AND date_arrived IS NULL )
+	),
+	CONSTRAINT valid_recognition CHECK(
+		NOT(status='exam_recognition' AND date_departure IS NULL )
+	)
 	-- TODO: CONSTRAINTS: check if host institution is user id's institution
 );
 
@@ -179,6 +185,60 @@ CREATE TABLE partner_institution (
 		ON UPDATE CASCADE,
 
 	-- NO A->A 
-	CONSTRAINT self_partner CHECK (id_institution <> id_partner_institution), 
+	CONSTRAINT self_partner CHECK (id_institution <> id_partner_institution),
 	UNIQUE (id_institution,id_partner_institution)
-)
+);
+
+CREATE TABLE la_modifications (
+	id SERIAL PRIMARY KEY,
+	application_id INT NOT NULL,
+	-- text describing what the modification is about
+	description TEXT NOT NULL,
+	-- status can be: pending, approved, rejected
+	status VARCHAR(32) NOT NULL default 'pending',
+	-- referent can approve or reject the modification request
+	decision_date TIMESTAMPTZ,
+	notes TEXT DEFAULT '',
+
+	FOREIGN KEY (application_id) REFERENCES applications(id)
+		ON DELETE CASCADE
+		ON UPDATE CASCADE,
+
+	-- optional document attached to the modification (e.g. a new learning agreement)
+	document_id INT,
+	FOREIGN KEY (document_id) REFERENCES uploaded_documents(id)
+		-- if the document gets deleted, keep the modification record
+		ON DELETE SET NULL
+		ON UPDATE CASCADE,
+
+	CONSTRAINT valid_modification_status CHECK (status IN ('pending','approved','rejected'))
+);
+
+CREATE TABLE la_modification_exams (
+	-- typed snapshot of the mapped_exams set as it was BEFORE the modification
+	id SERIAL PRIMARY KEY,
+	modification_id INT NOT NULL,
+	FOREIGN KEY (modification_id) REFERENCES la_modifications(id)
+		ON DELETE CASCADE
+		ON UPDATE CASCADE,
+
+	host_exam_id INT NOT NULL,
+	FOREIGN KEY (host_exam_id) REFERENCES exams(id)
+		ON DELETE RESTRICT
+		ON UPDATE CASCADE,
+	sending_exam_id INT NOT NULL,
+	FOREIGN KEY (sending_exam_id) REFERENCES exams(id)
+		ON DELETE RESTRICT
+		ON UPDATE CASCADE,
+
+	-- grade=-1 means not passed
+	grade INT default -1,
+	date_passed DATE,
+	-- status can be: pending, approved, rejected
+	status VARCHAR(32) NOT NULL default 'pending',
+	notes TEXT DEFAULT '',
+	decision_date TIMESTAMPTZ,
+
+	UNIQUE (modification_id, sending_exam_id),
+	UNIQUE (modification_id, host_exam_id)
+);
