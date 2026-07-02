@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, date, timezone
+from routes.api import extract_db_error
 
 from flask import Blueprint, jsonify, request, g, current_app, send_file
 
@@ -52,7 +53,6 @@ def list_applications():
         result.append(app.to_dict())
     return jsonify(result), 200
 
-
 # TEST: [POST] /application/insert
 # creates a new application row (student only) and prepares its uploads directory
 @applications_blueprint.route("/application/insert", methods=["POST"])
@@ -83,7 +83,8 @@ def insert_application():
         return jsonify({"status": "success", "id": new_app.id}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 
 # OK: [POST] /application/update/:id
@@ -147,12 +148,14 @@ def post_update_application(id):
         except Exception as e:
             # DB triggers/constraints enforce workflow rules; surface them as a 400
             db.session.rollback()
-            return jsonify({"status": "failed", "error": str(e)}), 400
+            msg = extract_db_error(e)
+            return jsonify({"status": "failed", "error": msg}), 400
 
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 # NOTE: [POST] /application/status/update/:id
 # updates the application status, following a very specific workflow 
@@ -202,7 +205,8 @@ def update_status_application(id):
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 
 # OK: [POST] /application/delete/:id
@@ -225,7 +229,8 @@ def delete_application(id):
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 #   -------  APPLICATION INFORMATION SECTION  -------
 
@@ -355,7 +360,8 @@ def list_application_documents(id):
             )
         return jsonify(result), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"error": msg}), 500
 
 
 # OK: [POST] /application/document/insert
@@ -387,7 +393,8 @@ def insert_application_document():
         return jsonify({"status": "success", "id": new_doc.id}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 
 # OK: [POST] /application/document/upload
@@ -420,7 +427,8 @@ def upload_application_document():
 
         return jsonify({"status": "success", "file_path": destination}), 200
     except Exception as e:
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 
 # OK: [POST] /application/document/:id/delete
@@ -461,7 +469,8 @@ def delete_application_document(id):
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 
 # OK: [GET] /application/document/:id/download
@@ -534,7 +543,8 @@ def decide_application_document(id):
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 400
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 400
 
 
 # OK: [GET] /application/exams_mapping/:application_id
@@ -572,7 +582,8 @@ def list_application_exam_mappings(application_id):
             )
         return jsonify(result), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"error": msg}), 500
 
 #   -------  DOCUMENT INFORMATION SECTION  -------
 

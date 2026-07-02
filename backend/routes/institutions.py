@@ -8,6 +8,7 @@ from auth import (
 )
 from models import db, Institution, PartnerInstitution
 from routes.users import user_in_institution
+from routes.api import extract_db_error
 
 institutions_blueprint = Blueprint("institutions", __name__)
 
@@ -48,7 +49,8 @@ def insert_institution():
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 # OK: [POST] /institution/info/:id
 # returns information associated to the application
@@ -96,7 +98,8 @@ def update_institution(id):
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 
 # OK: [GET] /institution/:id_institution/partners
@@ -132,7 +135,8 @@ def get_institution_partners(id_institution):
             })
         return jsonify(result), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"error": msg}), 500
 
 
 # OK: [GET] /institution/:id/referents
@@ -165,7 +169,8 @@ def get_institution_referents(id):
             })
         return jsonify(result), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"error": msg}), 500
 
 
 # OK: [GET] /institution/:id/students
@@ -198,7 +203,8 @@ def get_institution_students(id):
             })
         return jsonify(result), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"error": msg}), 500
 
 
 # OK: [GET] /institution/:id/staff
@@ -231,7 +237,8 @@ def get_institution_staff(id):
             })
         return jsonify(result), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"error": msg}), 500
 
 
 # OK: [GET] /institution/:id/exams
@@ -263,7 +270,8 @@ def get_institution_exams(id):
             })
         return jsonify(result), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"error": msg}), 500
 
 
 # OK: [POST] /institution/partner/insert
@@ -289,7 +297,8 @@ def insert_partner_institution():
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 
 # OK: [POST] /institution/partner/:id/delete
@@ -311,7 +320,8 @@ def delete_partner_institution(id):
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 
 # NOTE: [POST] /institution/partner/:id/update
@@ -343,4 +353,5 @@ def update_partner_institution(id):
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
