@@ -42,7 +42,7 @@ def list_applications():
         applications = Application.query.filter_by(referent_id=user.id).all()
     elif role == ROLE_OVERSEAS:
         applications = Application.query.filter_by(
-            host_institution=user.id_institution
+            sending_institution=user.id_institution
         ).all()
     else:
         return jsonify({"error": "role not authorized"}), 403

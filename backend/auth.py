@@ -19,14 +19,14 @@ def normalize_role(role):
 # (and therefore its uploaded files / modifications).
 #   student  -> only their own applications
 #   referent -> only applications they are referent for
-#   overseas -> only applications hosted by their institution
+#   overseas -> only applications sent by their institution
 def can_view_application(application, user, role):
     if role == ROLE_STUDENT:
         return application.user_id == user.id
     if role == ROLE_REFERENT:
         return application.referent_id == user.id
     if role == ROLE_OVERSEAS:
-        return application.host_institution == user.id_institution
+        return application.sending_institution == user.id_institution
     return False
 
 
