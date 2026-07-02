@@ -10,6 +10,14 @@ api_blueprint = Blueprint("api", __name__, url_prefix="/api")
 def _rows_to_dicts(result):
     return [dict(row) for row in result.mappings().all()]
 
+# checks the exception and returns the message acordingly
+def extract_db_error(e):
+    orig = getattr(e, "orig", None)  # the underlying psycopg2 error, if any
+
+    if orig is None or not getattr(orig, "diag", None):
+        return str(e)
+
+    return orig.diag.message_primary or str(orig)
 
 @api_blueprint.route("/health", methods=["GET"])
 def health():
