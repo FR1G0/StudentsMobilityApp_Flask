@@ -67,7 +67,6 @@ def all_users():
 # OK: [GET] /user/:id
 # returns the information of the row users using the users' id
 @users_blueprint.route("/user/<int:id>", methods=["GET"])
-@require_roles(ROLE_OVERSEAS)
 @custom_jwt_required()
 def get_user(id):
     try:
@@ -76,7 +75,16 @@ def get_user(id):
             return jsonify({"error": "user not found"}), 404
         if not user_in_institution(g.current_user, user.id_institution):
             return jsonify({"error": "access restricted"}), 404
-        return jsonify(user.to_dict()), 200
+
+        result = {
+            "id": user.id,
+            "firstname": user.firstname,
+            "lastname": user.lastname,
+            "email": user.email,
+            "role": user.role,
+            "id_institution": user.id_institution,
+        }
+        return jsonify(result), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
