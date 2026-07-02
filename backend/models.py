@@ -88,10 +88,6 @@ class Application(db.Model):
             "status IN ('created', 'learning_agreement_pending', 'pre_departure_completed', 'mobility_ongoing', 'exam_recognition', 'closed')",
             name='valid_status'
         ),
-        db.CheckConstraint(
-            'year >= EXTRACT(YEAR FROM CURRENT_DATE)',
-            name='valid_year'
-        ),
     )
 
     # trigger: referent must be a referent, student must be a student, and an application cannot start already past the initial statuses

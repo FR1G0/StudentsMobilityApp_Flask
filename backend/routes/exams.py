@@ -87,7 +87,7 @@ def delete_exam(id):
             return jsonify({"status": "failed", "error": "exam not found"}), 404
 
         # validate user access
-        if not user_in_institution(g.current_user, exam.get("id_institution")):
+        if not user_in_institution(g.current_user, exam.id_institution):
             return jsonify({"status": "failed", "error": "access restricted"}), 403
 
         db.session.delete(exam)
@@ -149,7 +149,7 @@ def delete_mapped_exam(id):
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
         if not can_view_application(application, g.current_user, g.current_user_role):
-            return jsonify( {"status": "failed", "error": "cannot add a mapping to this application"}), 403
+            return jsonify( {"status": "failed", "error": "cannot remove a mapping to this application"}), 403
         # TODO : should we also check if such operation is allowed? as in if the application is in "ongoing" the mapped exam shouldn't be changed, but my concerns are related to the fact that maybe LamodifcationExam is in charge of such operation
 
         db.session.delete(mapping)

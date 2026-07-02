@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 6Zz4wQtljHA7Ueg5wdKBzlRK2tsUujCHrEDf4GAIg1J84HRE5deYCoRTaZXmpqt
+\restrict O1RAnYdH46RGlkv9de7hRlbalus6qUjNzyiFZcqPp6YZcHjB17p4CyEw8ritdvg
 
 -- Dumped from database version 17.10
 -- Dumped by pg_dump version 18.4
@@ -235,7 +235,7 @@ BEGIN
 		SELECT status INTO app_status
 		FROM applications
 		WHERE id = NEW.application_id;
-		IF app_status NOT IN ('created','learning_agreement_pending','exam_recognition') THEN
+		IF app_status NOT IN ('created','learning_agreement_pending','mobility_ongoing','exam_recognition') THEN
 			RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
 		END IF;
 
@@ -865,7 +865,7 @@ a1f4c2e9b7d0
 --
 
 COPY public.applications (id, year, semester, status, date_submitted, sending_institution, host_institution, user_id, date_arrived, date_departure, notes, referent_id) FROM stdin;
-14	2028	full	mobility_ongoing	\N	1	3	1	2026-07-06	2026-07-08		49
+14	2028	full	exam_recognition	\N	1	3	1	2026-07-06	2026-07-08		49
 9	2026	full	closed	\N	1	5	1	2026-06-17	2026-06-23		51
 5	2026	first	closed	\N	1	5	1	2026-06-14	2026-06-24		50
 13	2026	second	closed	\N	1	3	1	2026-07-03	2026-07-15		49
@@ -1013,6 +1013,9 @@ COPY public.institutions (id, name, country, city) FROM stdin;
 --
 
 COPY public.la_modification_exams (id, modification_id, host_exam_id, sending_exam_id, grade, date_passed, status, notes, decision_date) FROM stdin;
+1	1	14	4	-1	\N	approved		2026-07-02 11:45:34.231871+00
+2	1	12	2	-1	\N	approved		2026-07-02 11:45:34.966161+00
+3	1	13	1	-1	\N	approved	nah	2026-07-02 11:45:40.324714+00
 \.
 
 
@@ -1021,6 +1024,7 @@ COPY public.la_modification_exams (id, modification_id, host_exam_id, sending_ex
 --
 
 COPY public.la_modifications (id, application_id, description, status, decision_date, notes, document_id) FROM stdin;
+1	14	test descript of changes AAAAA	approved	2026-07-02 12:03:26.679773+00		36
 \.
 
 
@@ -1029,6 +1033,9 @@ COPY public.la_modifications (id, application_id, description, status, decision_
 --
 
 COPY public.mapped_exams (id, application_id, date_passed, grade, status, decision_date, notes, previous_id, host_exam_id, sending_exam_id) FROM stdin;
+125	14	2026-07-22	30	approved	2026-07-02 12:16:28.438737+00		-1	13	1
+123	14	2026-07-10	30	approved	2026-07-02 12:16:29.943683+00		-1	14	5
+124	14	2026-07-24	29	approved	2026-07-02 12:16:30.668951+00	asd	-1	12	2
 69	9	\N	30	approved	2026-06-21 19:04:11.246943+00		-1	22	3
 70	9	\N	30	approved	2026-06-22 20:05:05.08656+00	a	-1	25	5
 71	9	\N	30	approved	2026-06-22 20:05:06.501595+00	atat	-1	23	1
@@ -1036,9 +1043,6 @@ COPY public.mapped_exams (id, application_id, date_passed, grade, status, decisi
 67	5	\N	30	approved	2026-06-22 21:11:47.752494+00		-1	21	4
 66	5	\N	30	approved	2026-06-22 21:11:48.48415+00		-1	22	5
 107	13	\N	30	approved	2026-07-02 09:31:17.905649+00	yes	-1	14	2
-120	14	\N	-1	approved	2026-07-02 11:45:34.231871+00		-1	14	4
-122	14	\N	-1	approved	2026-07-02 11:45:34.966161+00		-1	12	2
-119	14	\N	-1	approved	2026-07-02 11:45:40.324714+00	nah	-1	13	1
 \.
 
 
@@ -1100,6 +1104,7 @@ COPY public.uploaded_documents (id, document_type, file_path, user_id, applicati
 34	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/13/FRIGO_JOSEPH_Learning_Agreement.pdf	1	13	2026-07-02 09:15:29.240478+00	approved	2026-07-02 09:15:55.652695+00	
 35	transcript	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/13/JOSEPH_FRIGO_learning-agreement-studies.pdf	1	13	2026-07-02 09:20:59.583427+00	approved	2026-07-02 09:21:21.134558+00	
 36	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/14/FRIGO_JOSEPH_Learning_Agreement.pdf	1	14	2026-07-02 11:44:11.784884+00	approved	2026-07-02 11:45:38.844232+00	
+37	transcript	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/14/Bando_Unico_DJD_2025_def.pdf	1	14	2026-07-02 12:13:14.872456+00	approved	2026-07-02 12:16:38.668079+00	
 \.
 
 
@@ -1234,21 +1239,21 @@ SELECT pg_catalog.setval('public.institutions_id_seq', 1, false);
 -- Name: la_modification_exams_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.la_modification_exams_id_seq', 1, false);
+SELECT pg_catalog.setval('public.la_modification_exams_id_seq', 3, true);
 
 
 --
 -- Name: la_modifications_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.la_modifications_id_seq', 1, false);
+SELECT pg_catalog.setval('public.la_modifications_id_seq', 1, true);
 
 
 --
 -- Name: mapped_exams_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.mapped_exams_id_seq', 122, true);
+SELECT pg_catalog.setval('public.mapped_exams_id_seq', 125, true);
 
 
 --
@@ -1262,7 +1267,7 @@ SELECT pg_catalog.setval('public.partner_institution_id_seq', 38, true);
 -- Name: uploaded_documents_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.uploaded_documents_id_seq', 36, true);
+SELECT pg_catalog.setval('public.uploaded_documents_id_seq', 37, true);
 
 
 --
@@ -1805,5 +1810,5 @@ REFRESH MATERIALIZED VIEW public.mv_institution_activity;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 6Zz4wQtljHA7Ueg5wdKBzlRK2tsUujCHrEDf4GAIg1J84HRE5deYCoRTaZXmpqt
+\unrestrict O1RAnYdH46RGlkv9de7hRlbalus6qUjNzyiFZcqPp6YZcHjB17p4CyEw8ritdvg
 

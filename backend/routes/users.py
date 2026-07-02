@@ -135,12 +135,12 @@ def update_user():
         if not data or not data.get("id"):
             return jsonify({"status": "failed", "error": "missing id"}), 400
 
-        if not user_in_institution(g.current_user, data.get("id_institution")):
-            return jsonify({"status": "failed", "error": "restricted access to this user"}), 403
-
         user = User.query.get(data["id"])
         if not user:
             return jsonify({"status": "failed", "error": "user not found"}), 404
+
+        if not user_in_institution(g.current_user, user.id_institution):
+            return jsonify({"status": "failed", "error": "restricted access to this user"}), 403
 
         if "email" in data:
             user.email = data["email"]
