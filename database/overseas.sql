@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict OuIHLoIuM2vQHkt4uRxpTdLd6gsNFrtmddCek2W668nepWoDN6keuipoR6M7FUz
+\restrict h3PdcR5ZjNeBPdazL5g4oAjgx7tybNIQ3YMpS9vk5UgsHn4chCjPm0BStXWwe4u
 
 -- Dumped from database version 17.10
 -- Dumped by pg_dump version 18.4
@@ -67,9 +67,12 @@ CREATE FUNCTION public.check_application_status_workflow() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
+	IF NEW.status='created' AND OLD.status NOT IN ('learning_agreement_pending', 'created') THEN
+		RAISE EXCEPTION 'cannot move to created without an approved learning agreement';
+	END IF;
 
 	-- learning_agreement_pending -> pre_departure_completed
-	IF NEW.status='pre_departure_completed' AND OLD.status='learning_agreement_pending' THEN
+	IF NEW.status='pre_departure_completed' AND  OLD.status='created' THEN
 		-- check if associated learning agreement exists and has been approved
 		IF NOT EXISTS ( SELECT 1 
 				FROM uploaded_documents
@@ -88,7 +91,7 @@ BEGIN
 			) THEN
 			RAISE EXCEPTION 'cannot move to pre_departure_completed: all mapped exams must be approved';
 		END IF;
-	ELSE 
+	ELSEIF NEW.status='pre_departure_completed' AND OLD.status<>'learning_agreement_pending' THEN
 		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 
@@ -98,12 +101,12 @@ BEGIN
 	END IF;
 	
 	-- mobility_ongoing -> exam_recognition
-	IF NEW.status='exam_recognition' AND OLD.status=='mobility_ongoing' THEN
+	IF NEW.status='exam_recognition' AND OLD.status='mobility_ongoing' THEN
 		-- update the mapped exams to 'pending' because a grade is expected
 		UPDATE mapped_exams 
 		SET status='pending' 
 		WHERE application_id=NEW.id;
-	ELSE
+	ELSEIF NEW.status='exam_recognition' AND OLD.status<>'mobility_ongoing' THEN
 		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 
@@ -128,7 +131,7 @@ BEGIN
 			) THEN
 			RAISE EXCEPTION 'all exams must be approved and require a grade';
 		END IF;
-	ELSE
+	ELSEIF NEW.status='closed' AND OLD.status<>'exam_recognition' THEN
 		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 
@@ -228,11 +231,11 @@ DECLARE
 	app_status VARCHAR(32);
 BEGIN
     IF NEW.status IN ('approved', 'rejected') THEN
-		-- check if the application is on status 'learning_agreement_pending' or 'created'
+		-- prevent status change when application is not in adequate status 
 		SELECT status INTO app_status
 		FROM applications
 		WHERE id = NEW.application_id;
-		IF app_status NOT IN ('created','learning_agreement_pending') THEN
+		IF app_status NOT IN ('created','learning_agreement_pending','exam_recognition') THEN
 			RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
 		END IF;
 
@@ -751,7 +754,7 @@ COPY public.alembic_version (version_num) FROM stdin;
 COPY public.applications (id, year, semester, status, date_submitted, sending_institution, host_institution, user_id, date_arrived, date_departure, notes, referent_id) FROM stdin;
 9	2026	full	closed	\N	1	5	1	2026-06-17	2026-06-23		51
 5	2026	first	closed	\N	1	5	1	2026-06-14	2026-06-24		50
-11	2026	first	created	\N	1	4	1	2026-07-01	2026-07-13		49
+13	2026	second	closed	\N	1	3	1	2026-07-03	2026-07-15		49
 \.
 
 
@@ -896,14 +899,13 @@ COPY public.institutions (id, name, country, city) FROM stdin;
 --
 
 COPY public.mapped_exams (id, application_id, date_passed, grade, status, decision_date, notes, previous_id, host_exam_id, sending_exam_id) FROM stdin;
-69	9	\N	-1	approved	2026-06-21 19:04:11.246943+00		-1	22	3
-70	9	\N	-1	approved	2026-06-22 20:05:05.08656+00	a	-1	25	5
-71	9	\N	-1	approved	2026-06-22 20:05:06.501595+00	atat	-1	23	1
-68	9	\N	-1	approved	2026-06-22 20:06:36.905624+00		-1	21	2
-67	5	\N	-1	approved	2026-06-22 21:11:47.752494+00		-1	21	4
-66	5	\N	-1	approved	2026-06-22 21:11:48.48415+00		-1	22	5
-78	11	\N	-1	pending	\N		-1	20	1
-79	11	\N	-1	pending	\N		-1	19	4
+69	9	\N	30	approved	2026-06-21 19:04:11.246943+00		-1	22	3
+70	9	\N	30	approved	2026-06-22 20:05:05.08656+00	a	-1	25	5
+71	9	\N	30	approved	2026-06-22 20:05:06.501595+00	atat	-1	23	1
+68	9	\N	30	approved	2026-06-22 20:06:36.905624+00		-1	21	2
+67	5	\N	30	approved	2026-06-22 21:11:47.752494+00		-1	21	4
+66	5	\N	30	approved	2026-06-22 21:11:48.48415+00		-1	22	5
+107	13	\N	30	approved	2026-07-02 09:31:17.905649+00	yes	-1	14	2
 \.
 
 
@@ -962,6 +964,8 @@ COPY public.uploaded_documents (id, document_type, file_path, user_id, applicati
 21	transcript	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/9/Bando_Unico_DJD_2025_def.pdf	1	9	2026-06-22 21:00:18.156059+00	approved	2026-06-22 21:10:27.34826+00	sd
 19	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/5/(OLD)FRIGO_JOSEPH_Learning_Agreement.pdf	1	5	2026-06-21 17:45:39.543985+00	approved	2026-06-22 21:11:49.346143+00	
 22	transcript	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/5/StampaAutocertificazione.pdf	1	5	2026-06-22 21:13:17.098005+00	approved	2026-06-22 21:14:12.625443+00	
+34	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/13/FRIGO_JOSEPH_Learning_Agreement.pdf	1	13	2026-07-02 09:15:29.240478+00	approved	2026-07-02 09:15:55.652695+00	
+35	transcript	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/13/JOSEPH_FRIGO_learning-agreement-studies.pdf	1	13	2026-07-02 09:20:59.583427+00	approved	2026-07-02 09:21:21.134558+00	
 \.
 
 
@@ -1075,7 +1079,7 @@ COPY public.users (id, email, password_hash, role, firstname, lastname, id_insti
 -- Name: applications_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.applications_id_seq', 11, true);
+SELECT pg_catalog.setval('public.applications_id_seq', 13, true);
 
 
 --
@@ -1096,7 +1100,7 @@ SELECT pg_catalog.setval('public.institutions_id_seq', 1, false);
 -- Name: mapped_exams_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.mapped_exams_id_seq', 79, true);
+SELECT pg_catalog.setval('public.mapped_exams_id_seq', 107, true);
 
 
 --
@@ -1110,7 +1114,7 @@ SELECT pg_catalog.setval('public.partner_institution_id_seq', 38, true);
 -- Name: uploaded_documents_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.uploaded_documents_id_seq', 23, true);
+SELECT pg_catalog.setval('public.uploaded_documents_id_seq', 35, true);
 
 
 --
@@ -1560,5 +1564,5 @@ REFRESH MATERIALIZED VIEW public.mv_institution_activity;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict OuIHLoIuM2vQHkt4uRxpTdLd6gsNFrtmddCek2W668nepWoDN6keuipoR6M7FUz
+\unrestrict h3PdcR5ZjNeBPdazL5g4oAjgx7tybNIQ3YMpS9vk5UgsHn4chCjPm0BStXWwe4u
 

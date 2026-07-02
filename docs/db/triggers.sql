@@ -115,9 +115,12 @@ FOR EACH ROW
 -- student puts application into ongoing or exam_recognition
 CREATE OR REPLACE FUNCTION check_application_status_workflow() RETURNS TRIGGER AS $$
 BEGIN
+	IF NEW.status='created' AND OLD.status NOT IN ('learning_agreement_pending', 'created') THEN
+		RAISE EXCEPTION 'cannot move to created without an approved learning agreement';
+	END IF;
 
 	-- learning_agreement_pending -> pre_departure_completed
-	IF NEW.status='pre_departure_completed' AND OLD.status='learning_agreement_pending' THEN
+	IF NEW.status='pre_departure_completed' AND  OLD.status='created' THEN
 		-- check if associated learning agreement exists and has been approved
 		IF NOT EXISTS ( SELECT 1 
 				FROM uploaded_documents
@@ -136,7 +139,7 @@ BEGIN
 			) THEN
 			RAISE EXCEPTION 'cannot move to pre_departure_completed: all mapped exams must be approved';
 		END IF;
-	ELSE 
+	ELSEIF NEW.status='pre_departure_completed' AND OLD.status<>'learning_agreement_pending' THEN
 		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 
@@ -146,12 +149,12 @@ BEGIN
 	END IF;
 	
 	-- mobility_ongoing -> exam_recognition
-	IF NEW.status='exam_recognition' AND OLD.status=='mobility_ongoing' THEN
+	IF NEW.status='exam_recognition' AND OLD.status='mobility_ongoing' THEN
 		-- update the mapped exams to 'pending' because a grade is expected
 		UPDATE mapped_exams 
 		SET status='pending' 
 		WHERE application_id=NEW.id;
-	ELSE
+	ELSEIF NEW.status='exam_recognition' AND OLD.status<>'mobility_ongoing' THEN
 		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 
@@ -176,7 +179,7 @@ BEGIN
 			) THEN
 			RAISE EXCEPTION 'all exams must be approved and require a grade';
 		END IF;
-	ELSE
+	ELSEIF NEW.status='closed' AND OLD.status<>'exam_recognition' THEN
 		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 
@@ -200,7 +203,7 @@ BEGIN
 		SELECT status INTO app_status
 		FROM applications
 		WHERE id = NEW.application_id;
-		IF app_status NOT IN ('created','learning_agreement_pending') THEN
+		IF app_status NOT IN ('created','learning_agreement_pending','exam_recognition') THEN
 			RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
 		END IF;
 
@@ -232,12 +235,12 @@ BEGIN
 		-- prevent status change when application is not in adequate status 
 		IF NEW.document_type='learning_agreement' THEN
 			IF app_status NOT IN ('created','learning_agreement_pending') THEN
-				RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
+				RAISE EXCEPTION 'cannot change document when associated application is in % status', app_status;
 			END IF;
 		END IF;
 		IF NEW.document_type='transcript' THEN
 			IF app_status <> 'exam_recognition' THEN
-				RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
+				RAISE EXCEPTION 'cannot change document status when associated application is in % status', app_status;
 			END IF;
 		END IF;
 
