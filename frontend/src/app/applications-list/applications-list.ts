@@ -4,9 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 
 import { App } from '../app';
-import { Applications, Application } from '../api/applications';
-import { Institutions } from '../api/institutions';
-import { Users } from '../api/users';
+import { Applications, Application, ApplicationInfo } from '../api/applications';
 
 @Component({
   selector: 'app-applications-list',
@@ -17,8 +15,6 @@ import { Users } from '../api/users';
 export class ApplicationsList implements OnInit {
   constructor(
     private applicationsApi: Applications,
-    private institutionsApi: Institutions,
-    private usersApi: Users,
     private app : App,
     private router: Router,
     private cdr: ChangeDetectorRef,
@@ -29,11 +25,8 @@ export class ApplicationsList implements OnInit {
   inputFilterBy: string = 'all';
   isLoading = true;
 
-  applications: Application[] = [];
-
-  // lookup maps to resolve ids into readable values (institution name, student email)
-  institutionNames: { [id: number]: string } = {};
-  userEmails: { [id: number]: string } = {};
+  // applications already joined with institutions, applicant and referent data
+  applications: ApplicationInfo[] = [];
 
   // id of the application whose action menu is currently open (null = none)
   openMenuId: number | null = null;
@@ -55,7 +48,8 @@ export class ApplicationsList implements OnInit {
 
   ngOnInit() {
     if(!isPlatformBrowser(this.platformId)) { return; }
-    this.applicationsApi.getApplications().subscribe({
+    // single joined route: applications already carry institution/applicant data
+    this.applicationsApi.getApplicationsInfo().subscribe({
       next: res => {
         this.applications = res;
         this.isLoading = false;
@@ -73,38 +67,6 @@ export class ApplicationsList implements OnInit {
         this.cdr.markForCheck();
       }
     });
-
-    // load institution names so we can show sending/host names instead of ids
-    this.institutionsApi.getInstitutions().subscribe({
-      next: res => {
-        for (let institution of res) {
-          this.institutionNames[institution.id] = institution.name;
-        }
-        this.cdr.markForCheck();
-      },
-      error: err => console.error(err)
-    });
-
-    // FIX: HORRIBLE load user emails so we can show the applicant email instead of the user id
-    this.usersApi.getAllUsers().subscribe({
-      next: res => {
-        for (let user of res) {
-          this.userEmails[user.id] = user.email;
-        }
-        this.cdr.markForCheck();
-      },
-      error: err => console.error(err)
-    });
-  }
-
-  // returns the institution name for the given id (falls back to the id)
-  institutionName(id: number): string {
-    return this.institutionNames[id] || ('#' + id);
-  }
-
-  // returns the applicant email for the given application
-  applicantEmail(application: Application): string {
-    return this.userEmails[application.user_id] || '';
   }
 
   // opens/closes the action dropdown menu of a single application row
@@ -121,17 +83,14 @@ export class ApplicationsList implements OnInit {
     this.openMenuId = null;
   }
 
-  get filteredApplications(): Application[] {
+  get filteredApplications(): ApplicationInfo[] {
     return this.applications
       .filter(a => this.inputFilterBy === 'all' || a.status === this.inputFilterBy)
       .filter(a => {
         if (!this.inputSearch) return true;
         const q = this.inputSearch.toLowerCase();
-        return String(a.id).includes(q) ||
-               String(a.year).includes(q) ||
-               a.semester.toLowerCase().includes(q) ||
-               a.status.toLowerCase().includes(q) ||
-               a.notes.toLowerCase().includes(q);
+        return (a.sending?.name.toLowerCase().includes(q) ?? false) ||
+               (a.host?.name.toLowerCase().includes(q) ?? false);
       });
   }
 
