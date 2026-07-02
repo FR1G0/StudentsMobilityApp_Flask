@@ -324,7 +324,7 @@ BEGIN
         SELECT status INTO app_status
         FROM applications
         WHERE id = NEW.application_id;
-        IF app_status NOT IN ('created','learning_agreement_pending','exam_recognition') THEN
+		IF app_status NOT IN ('created','learning_agreement_pending','mobility_ongoing','exam_recognition') THEN
             RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
         END IF;
 
