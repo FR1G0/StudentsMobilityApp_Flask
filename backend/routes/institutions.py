@@ -273,7 +273,7 @@ def delete_partner_institution(id):
         if not partner:
             return jsonify({"status": "failed", "error": "mapping not found"}), 404
 
-        if not user_in_institution(g.current_user, id):
+        if not user_in_institution(g.current_user, partner.id_institution):
             return jsonify({"error": "staff member not authorized to remove partnership"}), 403
 
         db.session.delete(partner)
@@ -296,12 +296,13 @@ def update_partner_institution(id):
         if not data:
             return jsonify({"status": "failed", "error": "missing body"}), 400
 
-        if not user_in_institution(g.current_user, id):
-            return jsonify({"error": "staff member not authorized to update partnership"}), 403
 
         partner = PartnerInstitution.query.get(id)
         if not partner:
             return jsonify({"status": "failed", "error": "mapping not found"}), 404
+
+        if not user_in_institution(g.current_user, partner.id_institution):
+            return jsonify({"error": "staff member not authorized to update partnership"}), 403
 
         if "id_institution" in data:
             partner.id_institution = data["id_institution"]
