@@ -71,10 +71,11 @@ CREATE TABLE applications (
 		date_arrived IS NULL OR date_departure IS NULL
 		OR date_departure >= date_arrived
 	),
+	CONSTRAINT valid_year CHECK (year >= EXTRACT(YEAR FROM CURRENT_DATE)),
 	CONSTRAINT valid_semester CHECK (semester IN ('first','second','full')),
 	CONSTRAINT valid_status CHECK (status IN (
-		'created',
 		'learning_agreement_pending',
+		'created',
 		'pre_departure_completed',
 		'mobility_ongoing',
 		'exam_recognition',

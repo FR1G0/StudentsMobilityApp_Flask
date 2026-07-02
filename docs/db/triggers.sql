@@ -146,7 +146,12 @@ BEGIN
 	END IF;
 	
 	-- mobility_ongoing -> exam_recognition
-	IF NEW.status='exam_recognition' AND OLD.status<>'mobility_ongoing' THEN
+	IF NEW.status='exam_recognition' AND OLD.status=='mobility_ongoing' THEN
+		-- update the mapped exams to 'pending' because a grade is expected
+		UPDATE mapped_exams 
+		SET status='pending' 
+		WHERE application_id=NEW.id;
+	ELSE
 		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 
