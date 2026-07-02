@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict O1RAnYdH46RGlkv9de7hRlbalus6qUjNzyiFZcqPp6YZcHjB17p4CyEw8ritdvg
+\restrict BhVyn9vLLSUFrD4cb3s3elGMdJxj1f8NI7h7bOTmA4K1o6pjw9pklKfyRGzxaYd
 
 -- Dumped from database version 17.10
 -- Dumped by pg_dump version 18.4
@@ -856,7 +856,7 @@ ALTER TABLE ONLY public.users ALTER COLUMN id SET DEFAULT nextval('public.users_
 --
 
 COPY public.alembic_version (version_num) FROM stdin;
-a1f4c2e9b7d0
+0cc8de7364e3
 \.
 
 
@@ -1422,146 +1422,6 @@ ALTER TABLE ONLY public.users
 
 
 --
--- Name: idx_applications_date_submitted_desc; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_applications_date_submitted_desc ON public.applications USING btree (date_submitted DESC);
-
-
---
--- Name: idx_applications_host_institution; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_applications_host_institution ON public.applications USING btree (host_institution);
-
-
---
--- Name: idx_applications_referent_id; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_applications_referent_id ON public.applications USING btree (referent_id);
-
-
---
--- Name: idx_applications_sending_institution; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_applications_sending_institution ON public.applications USING btree (sending_institution);
-
-
---
--- Name: idx_applications_status; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_applications_status ON public.applications USING btree (status);
-
-
---
--- Name: idx_applications_user_id; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_applications_user_id ON public.applications USING btree (user_id);
-
-
---
--- Name: idx_exams_id_institution; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_exams_id_institution ON public.exams USING btree (id_institution);
-
-
---
--- Name: idx_la_modification_exams_modification_id; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_la_modification_exams_modification_id ON public.la_modification_exams USING btree (modification_id);
-
-
---
--- Name: idx_la_modifications_app_status; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_la_modifications_app_status ON public.la_modifications USING btree (application_id, status);
-
-
---
--- Name: idx_mapped_exams_application_id; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_mapped_exams_application_id ON public.mapped_exams USING btree (application_id);
-
-
---
--- Name: idx_mapped_exams_application_status; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_mapped_exams_application_status ON public.mapped_exams USING btree (application_id, status);
-
-
---
--- Name: idx_mapped_exams_host_exam_id; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_mapped_exams_host_exam_id ON public.mapped_exams USING btree (host_exam_id);
-
-
---
--- Name: idx_mapped_exams_sending_exam_id; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_mapped_exams_sending_exam_id ON public.mapped_exams USING btree (sending_exam_id);
-
-
---
--- Name: idx_partner_institution_partner_id; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_partner_institution_partner_id ON public.partner_institution USING btree (id_partner_institution);
-
-
---
--- Name: idx_uploaded_documents_app_type_date; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_uploaded_documents_app_type_date ON public.uploaded_documents USING btree (application_id, document_type, date_updated DESC);
-
-
---
--- Name: idx_uploaded_documents_app_type_status; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_uploaded_documents_app_type_status ON public.uploaded_documents USING btree (application_id, document_type, status);
-
-
---
--- Name: idx_uploaded_documents_application_id; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_uploaded_documents_application_id ON public.uploaded_documents USING btree (application_id);
-
-
---
--- Name: idx_uploaded_documents_user_id; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_uploaded_documents_user_id ON public.uploaded_documents USING btree (user_id);
-
-
---
--- Name: idx_users_id_institution; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_users_id_institution ON public.users USING btree (id_institution);
-
-
---
--- Name: idx_users_institution_role; Type: INDEX; Schema: public; Owner: myuser
---
-
-CREATE INDEX idx_users_institution_role ON public.users USING btree (id_institution, role);
-
-
---
 -- Name: applications applicaiton_status_workflow; Type: TRIGGER; Schema: public; Owner: myuser
 --
 
@@ -1810,5 +1670,5 @@ REFRESH MATERIALIZED VIEW public.mv_institution_activity;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict O1RAnYdH46RGlkv9de7hRlbalus6qUjNzyiFZcqPp6YZcHjB17p4CyEw8ritdvg
+\unrestrict BhVyn9vLLSUFrD4cb3s3elGMdJxj1f8NI7h7bOTmA4K1o6pjw9pklKfyRGzxaYd
 
