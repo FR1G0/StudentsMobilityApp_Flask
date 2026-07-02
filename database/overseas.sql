@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 08onwZCvhM0ELc7ygGxFrMtvoF6daOY9GBFJ4haoQkTuLbyexsQt79Y5BrtIBoR
+\restrict 6Zz4wQtljHA7Ueg5wdKBzlRK2tsUujCHrEDf4GAIg1J84HRE5deYCoRTaZXmpqt
 
 -- Dumped from database version 17.10
 -- Dumped by pg_dump version 18.4
@@ -18,42 +18,6 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
-
---
--- Name: check_application_close(); Type: FUNCTION; Schema: public; Owner: myuser
---
-
-CREATE FUNCTION public.check_application_close() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-BEGIN
-    IF NEW.status = 'closed' THEN
-        IF NOT EXISTS (
-            SELECT 1
-            FROM uploaded_documents
-            WHERE application_id = NEW.id
-              AND document_type = 'transcript'
-              AND status = 'approved'
-        ) THEN
-            RAISE EXCEPTION 'cannot close application without an approved transcript of records';
-        END IF;
-
-        IF EXISTS (
-            SELECT 1
-            FROM mapped_exams
-            WHERE application_id = NEW.id
-              AND status <> 'approved'
-        ) THEN
-            RAISE EXCEPTION 'cannot close application: all mapped exams must be approved';
-        END IF;
-    END IF;
-
-    RETURN NEW;
-END;
-$$;
-
-
-ALTER FUNCTION public.check_application_close() OWNER TO myuser;
 
 --
 -- Name: check_application_data(); Type: FUNCTION; Schema: public; Owner: myuser
@@ -103,9 +67,12 @@ CREATE FUNCTION public.check_application_status_workflow() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
+	IF NEW.status='created' AND OLD.status NOT IN ('learning_agreement_pending', 'created') THEN
+		RAISE EXCEPTION 'cannot move to created without an approved learning agreement';
+	END IF;
 
 	-- learning_agreement_pending -> pre_departure_completed
-	IF NEW.status='pre_departure_completed' AND OLD.status='learning_agreement_pending' THEN
+	IF NEW.status='pre_departure_completed' AND  OLD.status='created' THEN
 		-- check if associated learning agreement exists and has been approved
 		IF NOT EXISTS ( SELECT 1 
 				FROM uploaded_documents
@@ -113,7 +80,7 @@ BEGIN
 				AND document_type='learning_agreement'
 				AND status='approved'
 			) THEN
-			RAISE EXCEPTION 'approved learning agreement for the application is required';
+			RAISE EXCEPTION 'cannot move to pre_departure_completed without an approved learning agreement';
 		END IF;
 
 		-- check if mapped exams exists and are all approved (search for at least 1 that has not been approved)
@@ -122,9 +89,9 @@ BEGIN
 			WHERE application_id=NEW.id
 			AND status<>'approved'
 			) THEN
-			RAISE EXCEPTION 'all mapped exams of the application must be approved';
+			RAISE EXCEPTION 'cannot move to pre_departure_completed: all mapped exams must be approved';
 		END IF;
-	ELSE 
+	ELSEIF NEW.status='pre_departure_completed' AND OLD.status<>'learning_agreement_pending' THEN
 		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 
@@ -134,7 +101,12 @@ BEGIN
 	END IF;
 	
 	-- mobility_ongoing -> exam_recognition
-	IF NEW.status='exam_recognition' AND OLD.status<>'mobility_ongoing' THEN
+	IF NEW.status='exam_recognition' AND OLD.status='mobility_ongoing' THEN
+		-- update the mapped exams to 'pending' because a grade is expected
+		UPDATE mapped_exams 
+		SET status='pending' 
+		WHERE application_id=NEW.id;
+	ELSEIF NEW.status='exam_recognition' AND OLD.status<>'mobility_ongoing' THEN
 		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 
@@ -153,11 +125,13 @@ BEGIN
 		IF EXISTS(SELECT 1
 				FROM mapped_exams
 				WHERE application_id=NEW.id
-				AND grade IS NULL OR grade=-1
+				AND grade IS NULL 
+				OR grade=-1
+				OR status <> 'approved'
 			) THEN
-			RAISE EXCEPTION 'all exams must requre a grade';
+			RAISE EXCEPTION 'all exams must be approved and require a grade';
 		END IF;
-	ELSE
+	ELSEIF NEW.status='closed' AND OLD.status<>'exam_recognition' THEN
 		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 
@@ -257,11 +231,11 @@ DECLARE
 	app_status VARCHAR(32);
 BEGIN
     IF NEW.status IN ('approved', 'rejected') THEN
-		-- check if the application is on status 'learning_agreement_pending' or 'created'
+		-- prevent status change when application is not in adequate status 
 		SELECT status INTO app_status
 		FROM applications
 		WHERE id = NEW.application_id;
-		IF app_status NOT IN ('created','learning_agreement_pending') THEN
+		IF app_status NOT IN ('created','learning_agreement_pending','exam_recognition') THEN
 			RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
 		END IF;
 
@@ -300,6 +274,24 @@ $$;
 
 
 ALTER FUNCTION public.mirror_partner_institution() OWNER TO myuser;
+
+--
+-- Name: set_modification_decision_date(); Type: FUNCTION; Schema: public; Owner: myuser
+--
+
+CREATE FUNCTION public.set_modification_decision_date() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NEW.status IN ('approved', 'rejected') THEN
+        NEW.decision_date := CURRENT_TIMESTAMP;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.set_modification_decision_date() OWNER TO myuser;
 
 --
 -- Name: update_application_on_upload(); Type: FUNCTION; Schema: public; Owner: myuser
@@ -372,7 +364,8 @@ CREATE TABLE public.applications (
     notes text,
     referent_id integer,
     CONSTRAINT valid_ongoing CHECK ((NOT (((status)::text = 'mobility_ongoing'::text) AND (date_arrived IS NULL)))),
-    CONSTRAINT valid_recognition CHECK ((NOT (((status)::text = 'exam_recognition'::text) AND (date_departure IS NULL))))
+    CONSTRAINT valid_recognition CHECK ((NOT (((status)::text = 'exam_recognition'::text) AND (date_departure IS NULL)))),
+    CONSTRAINT valid_year CHECK (((year)::numeric >= EXTRACT(year FROM CURRENT_DATE)))
 );
 
 
@@ -501,6 +494,87 @@ ALTER SEQUENCE public.institutions_id_seq OWNER TO myuser;
 --
 
 ALTER SEQUENCE public.institutions_id_seq OWNED BY public.institutions.id;
+
+
+--
+-- Name: la_modification_exams; Type: TABLE; Schema: public; Owner: myuser
+--
+
+CREATE TABLE public.la_modification_exams (
+    id integer NOT NULL,
+    modification_id integer NOT NULL,
+    host_exam_id integer NOT NULL,
+    sending_exam_id integer NOT NULL,
+    grade integer DEFAULT '-1'::integer,
+    date_passed date,
+    status character varying(32) DEFAULT 'pending'::character varying NOT NULL,
+    notes text,
+    decision_date timestamp with time zone
+);
+
+
+ALTER TABLE public.la_modification_exams OWNER TO myuser;
+
+--
+-- Name: la_modification_exams_id_seq; Type: SEQUENCE; Schema: public; Owner: myuser
+--
+
+CREATE SEQUENCE public.la_modification_exams_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.la_modification_exams_id_seq OWNER TO myuser;
+
+--
+-- Name: la_modification_exams_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: myuser
+--
+
+ALTER SEQUENCE public.la_modification_exams_id_seq OWNED BY public.la_modification_exams.id;
+
+
+--
+-- Name: la_modifications; Type: TABLE; Schema: public; Owner: myuser
+--
+
+CREATE TABLE public.la_modifications (
+    id integer NOT NULL,
+    application_id integer NOT NULL,
+    description text NOT NULL,
+    status character varying(32) DEFAULT 'pending'::character varying NOT NULL,
+    decision_date timestamp with time zone,
+    notes text,
+    document_id integer,
+    CONSTRAINT valid_modification_status CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'approved'::character varying, 'rejected'::character varying])::text[])))
+);
+
+
+ALTER TABLE public.la_modifications OWNER TO myuser;
+
+--
+-- Name: la_modifications_id_seq; Type: SEQUENCE; Schema: public; Owner: myuser
+--
+
+CREATE SEQUENCE public.la_modifications_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.la_modifications_id_seq OWNER TO myuser;
+
+--
+-- Name: la_modifications_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: myuser
+--
+
+ALTER SEQUENCE public.la_modifications_id_seq OWNED BY public.la_modifications.id;
 
 
 --
@@ -736,6 +810,20 @@ ALTER TABLE ONLY public.institutions ALTER COLUMN id SET DEFAULT nextval('public
 
 
 --
+-- Name: la_modification_exams id; Type: DEFAULT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.la_modification_exams ALTER COLUMN id SET DEFAULT nextval('public.la_modification_exams_id_seq'::regclass);
+
+
+--
+-- Name: la_modifications id; Type: DEFAULT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.la_modifications ALTER COLUMN id SET DEFAULT nextval('public.la_modifications_id_seq'::regclass);
+
+
+--
 -- Name: mapped_exams id; Type: DEFAULT; Schema: public; Owner: myuser
 --
 
@@ -768,7 +856,7 @@ ALTER TABLE ONLY public.users ALTER COLUMN id SET DEFAULT nextval('public.users_
 --
 
 COPY public.alembic_version (version_num) FROM stdin;
-00cd7fdc75d9
+a1f4c2e9b7d0
 \.
 
 
@@ -777,8 +865,10 @@ COPY public.alembic_version (version_num) FROM stdin;
 --
 
 COPY public.applications (id, year, semester, status, date_submitted, sending_institution, host_institution, user_id, date_arrived, date_departure, notes, referent_id) FROM stdin;
+14	2028	full	mobility_ongoing	\N	1	3	1	2026-07-06	2026-07-08		49
 9	2026	full	closed	\N	1	5	1	2026-06-17	2026-06-23		51
 5	2026	first	closed	\N	1	5	1	2026-06-14	2026-06-24		50
+13	2026	second	closed	\N	1	3	1	2026-07-03	2026-07-15		49
 \.
 
 
@@ -919,16 +1009,36 @@ COPY public.institutions (id, name, country, city) FROM stdin;
 
 
 --
+-- Data for Name: la_modification_exams; Type: TABLE DATA; Schema: public; Owner: myuser
+--
+
+COPY public.la_modification_exams (id, modification_id, host_exam_id, sending_exam_id, grade, date_passed, status, notes, decision_date) FROM stdin;
+\.
+
+
+--
+-- Data for Name: la_modifications; Type: TABLE DATA; Schema: public; Owner: myuser
+--
+
+COPY public.la_modifications (id, application_id, description, status, decision_date, notes, document_id) FROM stdin;
+\.
+
+
+--
 -- Data for Name: mapped_exams; Type: TABLE DATA; Schema: public; Owner: myuser
 --
 
 COPY public.mapped_exams (id, application_id, date_passed, grade, status, decision_date, notes, previous_id, host_exam_id, sending_exam_id) FROM stdin;
-69	9	\N	-1	approved	2026-06-21 19:04:11.246943+00		-1	22	3
-70	9	\N	-1	approved	2026-06-22 20:05:05.08656+00	a	-1	25	5
-71	9	\N	-1	approved	2026-06-22 20:05:06.501595+00	atat	-1	23	1
-68	9	\N	-1	approved	2026-06-22 20:06:36.905624+00		-1	21	2
-67	5	\N	-1	approved	2026-06-22 21:11:47.752494+00		-1	21	4
-66	5	\N	-1	approved	2026-06-22 21:11:48.48415+00		-1	22	5
+69	9	\N	30	approved	2026-06-21 19:04:11.246943+00		-1	22	3
+70	9	\N	30	approved	2026-06-22 20:05:05.08656+00	a	-1	25	5
+71	9	\N	30	approved	2026-06-22 20:05:06.501595+00	atat	-1	23	1
+68	9	\N	30	approved	2026-06-22 20:06:36.905624+00		-1	21	2
+67	5	\N	30	approved	2026-06-22 21:11:47.752494+00		-1	21	4
+66	5	\N	30	approved	2026-06-22 21:11:48.48415+00		-1	22	5
+107	13	\N	30	approved	2026-07-02 09:31:17.905649+00	yes	-1	14	2
+120	14	\N	-1	approved	2026-07-02 11:45:34.231871+00		-1	14	4
+122	14	\N	-1	approved	2026-07-02 11:45:34.966161+00		-1	12	2
+119	14	\N	-1	approved	2026-07-02 11:45:40.324714+00	nah	-1	13	1
 \.
 
 
@@ -987,6 +1097,9 @@ COPY public.uploaded_documents (id, document_type, file_path, user_id, applicati
 21	transcript	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/9/Bando_Unico_DJD_2025_def.pdf	1	9	2026-06-22 21:00:18.156059+00	approved	2026-06-22 21:10:27.34826+00	sd
 19	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/5/(OLD)FRIGO_JOSEPH_Learning_Agreement.pdf	1	5	2026-06-21 17:45:39.543985+00	approved	2026-06-22 21:11:49.346143+00	
 22	transcript	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/5/StampaAutocertificazione.pdf	1	5	2026-06-22 21:13:17.098005+00	approved	2026-06-22 21:14:12.625443+00	
+34	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/13/FRIGO_JOSEPH_Learning_Agreement.pdf	1	13	2026-07-02 09:15:29.240478+00	approved	2026-07-02 09:15:55.652695+00	
+35	transcript	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/13/JOSEPH_FRIGO_learning-agreement-studies.pdf	1	13	2026-07-02 09:20:59.583427+00	approved	2026-07-02 09:21:21.134558+00	
+36	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/14/FRIGO_JOSEPH_Learning_Agreement.pdf	1	14	2026-07-02 11:44:11.784884+00	approved	2026-07-02 11:45:38.844232+00	
 \.
 
 
@@ -1100,7 +1213,7 @@ COPY public.users (id, email, password_hash, role, firstname, lastname, id_insti
 -- Name: applications_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.applications_id_seq', 9, true);
+SELECT pg_catalog.setval('public.applications_id_seq', 14, true);
 
 
 --
@@ -1118,10 +1231,24 @@ SELECT pg_catalog.setval('public.institutions_id_seq', 1, false);
 
 
 --
+-- Name: la_modification_exams_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
+--
+
+SELECT pg_catalog.setval('public.la_modification_exams_id_seq', 1, false);
+
+
+--
+-- Name: la_modifications_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
+--
+
+SELECT pg_catalog.setval('public.la_modifications_id_seq', 1, false);
+
+
+--
 -- Name: mapped_exams_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.mapped_exams_id_seq', 71, true);
+SELECT pg_catalog.setval('public.mapped_exams_id_seq', 122, true);
 
 
 --
@@ -1135,7 +1262,7 @@ SELECT pg_catalog.setval('public.partner_institution_id_seq', 38, true);
 -- Name: uploaded_documents_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.uploaded_documents_id_seq', 22, true);
+SELECT pg_catalog.setval('public.uploaded_documents_id_seq', 36, true);
 
 
 --
@@ -1183,6 +1310,38 @@ ALTER TABLE ONLY public.exams
 
 ALTER TABLE ONLY public.institutions
     ADD CONSTRAINT institutions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: la_modification_exams la_modification_exams_modification_id_host_exam_id_key; Type: CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.la_modification_exams
+    ADD CONSTRAINT la_modification_exams_modification_id_host_exam_id_key UNIQUE (modification_id, host_exam_id);
+
+
+--
+-- Name: la_modification_exams la_modification_exams_modification_id_sending_exam_id_key; Type: CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.la_modification_exams
+    ADD CONSTRAINT la_modification_exams_modification_id_sending_exam_id_key UNIQUE (modification_id, sending_exam_id);
+
+
+--
+-- Name: la_modification_exams la_modification_exams_pkey; Type: CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.la_modification_exams
+    ADD CONSTRAINT la_modification_exams_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: la_modifications la_modifications_pkey; Type: CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.la_modifications
+    ADD CONSTRAINT la_modifications_pkey PRIMARY KEY (id);
 
 
 --
@@ -1307,6 +1466,20 @@ CREATE INDEX idx_exams_id_institution ON public.exams USING btree (id_institutio
 
 
 --
+-- Name: idx_la_modification_exams_modification_id; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_la_modification_exams_modification_id ON public.la_modification_exams USING btree (modification_id);
+
+
+--
+-- Name: idx_la_modifications_app_status; Type: INDEX; Schema: public; Owner: myuser
+--
+
+CREATE INDEX idx_la_modifications_app_status ON public.la_modifications USING btree (application_id, status);
+
+
+--
 -- Name: idx_mapped_exams_application_id; Type: INDEX; Schema: public; Owner: myuser
 --
 
@@ -1398,13 +1571,6 @@ CREATE TRIGGER applicaiton_update_on_upload BEFORE INSERT ON public.uploaded_doc
 
 
 --
--- Name: applications application_close_check; Type: TRIGGER; Schema: public; Owner: myuser
---
-
-CREATE TRIGGER application_close_check BEFORE UPDATE ON public.applications FOR EACH ROW WHEN ((((old.status)::text <> (new.status)::text) AND ((new.status)::text = 'closed'::text))) EXECUTE FUNCTION public.check_application_close();
-
-
---
 -- Name: applications application_data_check; Type: TRIGGER; Schema: public; Owner: myuser
 --
 
@@ -1419,17 +1585,17 @@ CREATE TRIGGER document_status_update_check BEFORE UPDATE ON public.uploaded_doc
 
 
 --
+-- Name: la_modifications la_modification_decision_date; Type: TRIGGER; Schema: public; Owner: myuser
+--
+
+CREATE TRIGGER la_modification_decision_date BEFORE UPDATE ON public.la_modifications FOR EACH ROW WHEN (((old.status)::text <> (new.status)::text)) EXECUTE FUNCTION public.set_modification_decision_date();
+
+
+--
 -- Name: mapped_exams mapped_exam_institutions_check; Type: TRIGGER; Schema: public; Owner: myuser
 --
 
 CREATE TRIGGER mapped_exam_institutions_check BEFORE INSERT OR UPDATE ON public.mapped_exams FOR EACH ROW EXECUTE FUNCTION public.check_mapped_exam_institutions();
-
-
---
--- Name: mapped_exams mapped_exam_update_status_check; Type: TRIGGER; Schema: public; Owner: myuser
---
-
-CREATE TRIGGER mapped_exam_update_status_check BEFORE UPDATE ON public.mapped_exams FOR EACH ROW WHEN (((old.status)::text <> (new.status)::text)) EXECUTE FUNCTION public.check_update_status_mapped_exams();
 
 
 --
@@ -1508,6 +1674,46 @@ ALTER TABLE ONLY public.applications
 
 ALTER TABLE ONLY public.exams
     ADD CONSTRAINT exams_id_institution_fkey FOREIGN KEY (id_institution) REFERENCES public.institutions(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: la_modification_exams la_modification_exams_host_exam_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.la_modification_exams
+    ADD CONSTRAINT la_modification_exams_host_exam_id_fkey FOREIGN KEY (host_exam_id) REFERENCES public.exams(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: la_modification_exams la_modification_exams_modification_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.la_modification_exams
+    ADD CONSTRAINT la_modification_exams_modification_id_fkey FOREIGN KEY (modification_id) REFERENCES public.la_modifications(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- Name: la_modification_exams la_modification_exams_sending_exam_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.la_modification_exams
+    ADD CONSTRAINT la_modification_exams_sending_exam_id_fkey FOREIGN KEY (sending_exam_id) REFERENCES public.exams(id) ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+--
+-- Name: la_modifications la_modifications_application_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.la_modifications
+    ADD CONSTRAINT la_modifications_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.applications(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- Name: la_modifications la_modifications_document_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: myuser
+--
+
+ALTER TABLE ONLY public.la_modifications
+    ADD CONSTRAINT la_modifications_document_id_fkey FOREIGN KEY (document_id) REFERENCES public.uploaded_documents(id) ON UPDATE CASCADE ON DELETE SET NULL;
 
 
 --
@@ -1599,5 +1805,5 @@ REFRESH MATERIALIZED VIEW public.mv_institution_activity;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 08onwZCvhM0ELc7ygGxFrMtvoF6daOY9GBFJ4haoQkTuLbyexsQt79Y5BrtIBoR
+\unrestrict 6Zz4wQtljHA7Ueg5wdKBzlRK2tsUujCHrEDf4GAIg1J84HRE5deYCoRTaZXmpqt
 

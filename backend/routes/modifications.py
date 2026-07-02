@@ -35,8 +35,9 @@ def create_modification(application_id):
         application = Application.query.get(application_id)
         if not application:
             return jsonify({"error": "application not found"}), 404
-        if application.user_id != g.current_user_id:
-            return jsonify({"error": "not your application"}), 403
+        if not can_view_application(application, g.current_user, g.current_user_role):
+            return jsonify({"error": "not your application, access restricted"}), 403
+
         if application.status != "mobility_ongoing":
             return jsonify({"error": "modifications allowed only during mobility"}), 400
 

@@ -85,7 +85,7 @@ export class ApplicationsList implements OnInit {
       error: err => console.error(err)
     });
 
-    // load user emails so we can show the applicant email instead of the user id
+    // FIX: HORRIBLE load user emails so we can show the applicant email instead of the user id
     this.usersApi.getAllUsers().subscribe({
       next: res => {
         for (let user of res) {

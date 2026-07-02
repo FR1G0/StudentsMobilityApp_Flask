@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, g
 from sqlalchemy import text
 
 from auth import (
@@ -7,11 +7,12 @@ from auth import (
     require_roles,
 )
 from models import db, Institution, PartnerInstitution
+from routes.users import user_in_institution
 
 institutions_blueprint = Blueprint("institutions", __name__)
 
 
-# NOTE: [POST] /institution/insert
+# WARN: (how to restrict this kind of access) [POST] /institution/insert
 # inserts a new institution row (staff only)
 @institutions_blueprint.route("/institution/insert", methods=["POST"])
 @custom_jwt_required()
@@ -35,7 +36,7 @@ def insert_institution():
         return jsonify({"status": "failed", "error": str(e)}), 500
 
 
-# NOTE: [POST] /institution/update/:id
+# OK: [POST] /institution/update/:id
 # updates an existing institution row (staff only)
 @institutions_blueprint.route("/institution/update/<int:id>", methods=["POST"])
 @custom_jwt_required()
@@ -49,6 +50,10 @@ def update_institution(id):
         inst = Institution.query.get(id)
         if not inst:
             return jsonify({"status": "failed", "error": "institution not found"}), 404
+        
+
+        if not user_in_institution(g.current_user,id):
+            return jsonify({"error": " access restricted"}), 403
 
         if "name" in data:
             inst.name = data["name"]
@@ -64,25 +69,7 @@ def update_institution(id):
         return jsonify({"status": "failed", "error": str(e)}), 500
 
 
-# NOTE: [POST] /institution/delete/:id
-# deletes the institution row identified by :id (staff only)
-@institutions_blueprint.route("/institution/delete/<int:id>", methods=["POST"])
-@custom_jwt_required()
-@require_roles(ROLE_OVERSEAS)
-def delete_institution(id):
-    try:
-        inst = Institution.query.get(id)
-        if not inst:
-            return jsonify({"status": "failed", "error": "institution not found"}), 404
-        db.session.delete(inst)
-        db.session.commit()
-        return jsonify({"status": "success"}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
-
-
-# NOTE: [GET] /institution/:id_institution/partners
+# OK: [GET] /institution/:id_institution/partners
 # returns the list of partner institution mappings linked to the given institution
 @institutions_blueprint.route("/institution/<int:id_institution>/partners", methods=["GET"])
 @custom_jwt_required()
@@ -118,7 +105,7 @@ def get_institution_partners(id_institution):
         return jsonify({"error": str(e)}), 500
 
 
-# NOTE: [GET] /institution/:id/referents
+# OK: [GET] /institution/:id/referents
 # returns the list of referents (users with role=referent) associated to the institution
 @institutions_blueprint.route("/institution/<int:id>/referents", methods=["GET"])
 @custom_jwt_required()
@@ -151,7 +138,7 @@ def get_institution_referents(id):
         return jsonify({"error": str(e)}), 500
 
 
-# NOTE: [GET] /institution/:id/students
+# OK: [GET] /institution/:id/students
 # returns the list of students associated to the institution
 @institutions_blueprint.route("/institution/<int:id>/students", methods=["GET"])
 @custom_jwt_required()
@@ -184,7 +171,7 @@ def get_institution_students(id):
         return jsonify({"error": str(e)}), 500
 
 
-# NOTE: [GET] /institution/:id/staff
+# OK: [GET] /institution/:id/staff
 # returns the list of staff members associated to the institution
 @institutions_blueprint.route("/institution/<int:id>/staff", methods=["GET"])
 @custom_jwt_required()
@@ -217,7 +204,7 @@ def get_institution_staff(id):
         return jsonify({"error": str(e)}), 500
 
 
-# NOTE: [GET] /institution/:id/exams
+# OK: [GET] /institution/:id/exams
 # returns the list of exams associated to the institution
 @institutions_blueprint.route("/institution/<int:id>/exams", methods=["GET"])
 @custom_jwt_required()
@@ -249,7 +236,7 @@ def get_institution_exams(id):
         return jsonify({"error": str(e)}), 500
 
 
-# NOTE: [POST] /institution/partner/insert
+# OK: [POST] /institution/partner/insert
 # inserts a new partner_institution row to link two institutions
 @institutions_blueprint.route("/institution/partner/insert", methods=["POST"])
 @custom_jwt_required()
@@ -259,6 +246,9 @@ def insert_partner_institution():
         data = request.get_json()
         if not data:
             return jsonify({"status": "failed", "error": "missing body"}), 400
+        
+        if not user_in_institution(g.current_user, data.get("id_institution")):
+            return jsonify({"error": "staff member not authorized to add partnership"}), 403
 
         new_partner = PartnerInstitution(
             id_institution=data.get("id_institution"),
@@ -272,7 +262,7 @@ def insert_partner_institution():
         return jsonify({"status": "failed", "error": str(e)}), 500
 
 
-# NOTE: [POST] /institution/partner/:id/delete
+# OK: [POST] /institution/partner/:id/delete
 # deletes a partner_institution mapping using the row id
 @institutions_blueprint.route("/institution/partner/<int:id>/delete", methods=["POST"])
 @custom_jwt_required()
@@ -282,6 +272,10 @@ def delete_partner_institution(id):
         partner = PartnerInstitution.query.get(id)
         if not partner:
             return jsonify({"status": "failed", "error": "mapping not found"}), 404
+
+        if not user_in_institution(g.current_user, id):
+            return jsonify({"error": "staff member not authorized to remove partnership"}), 403
+
         db.session.delete(partner)
         db.session.commit()
         return jsonify({"status": "success"}), 200
@@ -292,6 +286,7 @@ def delete_partner_institution(id):
 
 # NOTE: [POST] /institution/partner/:id/update
 # updates an existing partner_institution mapping using the row id
+# WARN: a bit weird to update a partnership, but NOT logically wrong, let's keep it.
 @institutions_blueprint.route("/institution/partner/<int:id>/update", methods=["POST"])
 @custom_jwt_required()
 @require_roles(ROLE_OVERSEAS)
@@ -300,6 +295,9 @@ def update_partner_institution(id):
         data = request.get_json()
         if not data:
             return jsonify({"status": "failed", "error": "missing body"}), 400
+
+        if not user_in_institution(g.current_user, id):
+            return jsonify({"error": "staff member not authorized to update partnership"}), 403
 
         partner = PartnerInstitution.query.get(id)
         if not partner:

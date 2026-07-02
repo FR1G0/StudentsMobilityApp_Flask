@@ -1,5 +1,5 @@
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import ForeignKeyConstraint
+from sqlalchemy import ForeignKeyConstraint, DDL, event
 db = SQLAlchemy()
 
 # NOTE: : each model has predefined functions
@@ -88,7 +88,127 @@ class Application(db.Model):
             "status IN ('created', 'learning_agreement_pending', 'pre_departure_completed', 'mobility_ongoing', 'exam_recognition', 'closed')",
             name='valid_status'
         ),
+        db.CheckConstraint(
+            'year >= EXTRACT(YEAR FROM CURRENT_DATE)',
+            name='valid_year'
+        ),
     )
+
+    # trigger: referent must be a referent, student must be a student, and an application cannot start already past the initial statuses
+    application_data_check = DDL("""
+CREATE OR REPLACE FUNCTION check_application_data() RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.referent_id IS NOT NULL AND NOT EXISTS(
+        SELECT 1
+        FROM users
+        WHERE id = NEW.referent_id
+        AND role='referent'
+    ) THEN
+        RAISE EXCEPTION 'application referent must have role=referent';
+    END IF;
+
+    IF NOT EXISTS(
+        SELECT 1
+        FROM users
+        WHERE id=NEW.user_id
+        AND role='student'
+    ) THEN
+        RAISE EXCEPTION 'application student must have role=student';
+    END IF;
+
+    IF TG_OP='INSERT' AND NEW.status NOT IN('created','learning_agreement_pending') THEN
+        RAISE EXCEPTION 'application status cannot start with %', NEW.status;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER application_data_check
+BEFORE INSERT OR UPDATE ON applications
+FOR EACH ROW
+    EXECUTE FUNCTION check_application_data();
+""")
+    event.listen(db.metadata, "after_create", application_data_check)
+
+    # trigger: enforces the allowed status transitions of an application
+    application_status_workflow = DDL("""
+CREATE OR REPLACE FUNCTION check_application_status_workflow() RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status='created' AND OLD.status NOT IN ('learning_agreement_pending', 'created') THEN
+        RAISE EXCEPTION 'cannot move to created without an approved learning agreement';
+    END IF;
+
+    -- learning_agreement_pending -> pre_departure_completed
+    IF NEW.status='pre_departure_completed' AND  OLD.status='created' THEN
+        IF NOT EXISTS ( SELECT 1
+                FROM uploaded_documents
+                WHERE application_id=NEW.id
+                AND document_type='learning_agreement'
+                AND status='approved'
+            ) THEN
+            RAISE EXCEPTION 'cannot move to pre_departure_completed without an approved learning agreement';
+        END IF;
+
+        IF EXISTS (SELECT 1
+            FROM mapped_exams
+            WHERE application_id=NEW.id
+            AND status<>'approved'
+            ) THEN
+            RAISE EXCEPTION 'cannot move to pre_departure_completed: all mapped exams must be approved';
+        END IF;
+    ELSEIF NEW.status='pre_departure_completed' AND OLD.status<>'learning_agreement_pending' THEN
+        RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
+    END IF;
+
+    -- pre_departure_completed -> mobility_ongoing
+    IF NEW.status='mobility_ongoing' AND OLD.status<>'pre_departure_completed' THEN
+        RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
+    END IF;
+
+    -- mobility_ongoing -> exam_recognition
+    IF NEW.status='exam_recognition' AND OLD.status='mobility_ongoing' THEN
+        UPDATE mapped_exams
+        SET status='pending'
+        WHERE application_id=NEW.id;
+    ELSEIF NEW.status='exam_recognition' AND OLD.status<>'mobility_ongoing' THEN
+        RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
+    END IF;
+
+    IF NEW.status='closed' AND OLD.status='exam_recognition' THEN
+        IF NOT EXISTS (SELECT 1
+            FROM uploaded_documents
+            WHERE application_id=NEW.id
+            AND document_type='transcript'
+            AND status='approved'
+            ) THEN
+            RAISE EXCEPTION 'approved transcript of records required';
+        END IF;
+
+        IF EXISTS(SELECT 1
+                FROM mapped_exams
+                WHERE application_id=NEW.id
+                AND grade IS NULL
+                OR grade=-1
+                OR status <> 'approved'
+            ) THEN
+            RAISE EXCEPTION 'all exams must be approved and require a grade';
+        END IF;
+    ELSEIF NEW.status='closed' AND OLD.status<>'exam_recognition' THEN
+        RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER applicaiton_status_workflow
+BEFORE UPDATE ON applications
+FOR EACH ROW
+    WHEN (NEW.status<>OLD.status)
+    EXECUTE FUNCTION  check_application_status_workflow();
+""")
+    event.listen(db.metadata, "after_create", application_status_workflow)
 
     def to_dict(self):
         return {
@@ -155,6 +275,74 @@ class MappedExam(db.Model):
         db.UniqueConstraint('application_id', 'host_exam_id'),
     )
 
+    # trigger: host/sending exams must belong to the application's institutions
+    mapped_exam_institutions_check = DDL("""
+CREATE OR REPLACE FUNCTION check_mapped_exam_institutions() RETURNS TRIGGER AS $$
+DECLARE
+    app_host_inst       INT;
+    app_sending_inst    INT;
+    host_exam_inst      INT;
+    sending_exam_inst   INT;
+BEGIN
+    SELECT host_institution, sending_institution
+        INTO app_host_inst, app_sending_inst
+        FROM applications
+        WHERE id = NEW.application_id;
+
+    SELECT id_institution INTO host_exam_inst
+        FROM exams WHERE id = NEW.host_exam_id;
+
+    SELECT id_institution INTO sending_exam_inst
+        FROM exams WHERE id = NEW.sending_exam_id;
+
+    IF host_exam_inst <> app_host_inst THEN
+        RAISE EXCEPTION 'host_exam_id institution does not match application host_institution';
+    END IF;
+
+    IF sending_exam_inst <> app_sending_inst THEN
+        RAISE EXCEPTION 'sending_exam_id institution does not match application sending_institution';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER mapped_exam_institutions_check
+BEFORE INSERT OR UPDATE ON mapped_exams
+FOR EACH ROW
+    EXECUTE FUNCTION check_mapped_exam_institutions();
+""")
+    event.listen(db.metadata, "after_create", mapped_exam_institutions_check)
+
+    # trigger: stamp decision_date when a mapped exam is approved/rejected
+    mapped_exam_update_status_check = DDL("""
+CREATE OR REPLACE FUNCTION check_update_status_mapped_exams() RETURNS TRIGGER AS $$
+DECLARE
+    app_status VARCHAR(32);
+BEGIN
+    IF NEW.status IN ('approved', 'rejected') THEN
+        SELECT status INTO app_status
+        FROM applications
+        WHERE id = NEW.application_id;
+		IF app_status NOT IN ('created','learning_agreement_pending','mobility_ongoing','exam_recognition') THEN
+            RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
+        END IF;
+
+        NEW.decision_date := CURRENT_TIMESTAMP;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER mapped_exam_update_status_check
+BEFORE UPDATE ON mapped_exams
+FOR EACH ROW
+WHEN (OLD.status <> NEW.status)
+    EXECUTE FUNCTION check_update_status_mapped_exams();
+""")
+    event.listen(db.metadata, "after_create", mapped_exam_update_status_check)
+
 
 class UploadedDocument(db.Model):
     __tablename__ = 'uploaded_documents'
@@ -174,6 +362,79 @@ class UploadedDocument(db.Model):
         db.CheckConstraint("status IN ('pending', 'approved', 'rejected')", name='valid_status'),
     )
 
+    # trigger: on INSERT of a document, validate/advance the associated application
+    applicaiton_update_on_upload = DDL("""
+CREATE OR REPLACE FUNCTION update_application_on_upload() RETURNS TRIGGER AS $$
+DECLARE
+    app_status VARCHAR(32);
+BEGIN
+    SELECT status
+        INTO app_status
+        FROM applications
+        WHERE id = NEW.application_id;
+
+    IF NEW.document_type = 'learning_agreement' THEN
+        IF app_status NOT IN ('created','learning_agreement_pending') THEN
+            RAISE EXCEPTION 'new learning agreement document cannot be changed while the application is in % status', app_status;
+        END IF;
+
+        IF app_status = 'created' THEN
+            UPDATE applications SET status='learning_agreement_pending' WHERE id=NEW.application_id;
+        END IF;
+    ELSE
+        IF app_status <> 'exam_recognition' THEN
+            RAISE EXCEPTION 'new transcript of records document cannot be changed while the application is in % status', app_status;
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER applicaiton_update_on_upload
+BEFORE INSERT ON uploaded_documents
+FOR EACH ROW
+    EXECUTE FUNCTION update_application_on_upload();
+""")
+    event.listen(db.metadata, "after_create", applicaiton_update_on_upload)
+
+    # trigger: stamp decision_date when a document is approved/rejected
+    document_status_update_check = DDL("""
+CREATE OR REPLACE FUNCTION check_document_status_update() RETURNS TRIGGER AS $$
+DECLARE
+    app_status VARCHAR(32);
+BEGIN
+    SELECT status INTO app_status
+    FROM applications
+    WHERE id = NEW.application_id;
+
+    IF NEW.status IN ('approved', 'rejected') THEN
+        IF NEW.document_type='learning_agreement' THEN
+            IF app_status NOT IN ('created','learning_agreement_pending') THEN
+                RAISE EXCEPTION 'cannot change document when associated application is in % status', app_status;
+            END IF;
+        END IF;
+        IF NEW.document_type='transcript' THEN
+            IF app_status <> 'exam_recognition' THEN
+                RAISE EXCEPTION 'cannot change document status when associated application is in % status', app_status;
+            END IF;
+        END IF;
+
+        NEW.decision_date := CURRENT_TIMESTAMP;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER document_status_update_check
+BEFORE UPDATE ON uploaded_documents
+FOR EACH ROW
+WHEN (OLD.status <> NEW.status)
+    EXECUTE FUNCTION check_document_status_update();
+""")
+    event.listen(db.metadata, "after_create", document_status_update_check)
+
 
 class PartnerInstitution(db.Model):
     __tablename__ = 'partner_institution'
@@ -186,6 +447,31 @@ class PartnerInstitution(db.Model):
         db.CheckConstraint('id_institution <> id_partner_institution', name='self_partner'),
         db.UniqueConstraint('id_institution', 'id_partner_institution'),
     )
+
+    # trigger: keep the partnership symmetrical by mirroring the reciprocal row
+    partner_institution_symmetry = DDL("""
+CREATE OR REPLACE FUNCTION mirror_partner_institution() RETURNS TRIGGER AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM partner_institution
+        WHERE id_institution = NEW.id_partner_institution
+          AND id_partner_institution = NEW.id_institution
+    ) THEN
+        INSERT INTO partner_institution (id_institution, id_partner_institution)
+            VALUES (NEW.id_partner_institution, NEW.id_institution);
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER partner_institution_symmetry
+AFTER INSERT ON partner_institution
+FOR EACH ROW
+    EXECUTE FUNCTION mirror_partner_institution();
+""")
+    event.listen(db.metadata, "after_create", partner_institution_symmetry)
 
 
 class LAModification(db.Model):
@@ -202,6 +488,26 @@ class LAModification(db.Model):
     __table_args__ = (
         db.CheckConstraint("status IN ('pending', 'approved', 'rejected')", name='valid_modification_status'),
     )
+
+    # trigger: stamp decision_date when a modification is approved/rejected
+    la_modification_decision_date = DDL("""
+CREATE OR REPLACE FUNCTION set_modification_decision_date() RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status IN ('approved', 'rejected') THEN
+        NEW.decision_date := CURRENT_TIMESTAMP;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER la_modification_decision_date
+BEFORE UPDATE ON la_modifications
+FOR EACH ROW
+WHEN (OLD.status <> NEW.status)
+    EXECUTE FUNCTION set_modification_decision_date();
+""")
+    event.listen(db.metadata, "after_create", la_modification_decision_date)
 
     def to_dict(self):
         return {
