@@ -7,7 +7,7 @@ import { App } from '../app';
 import { Cookies } from '../cookies';
 import { User, Users } from '../api/users';
 import { Institutions } from '../api/institutions';
-import { Applications, Application, UploadedDocument } from '../api/applications';
+import { Applications, Application, UploadedDocument, LAModification } from '../api/applications';
 import { Exams, Exam, MappedExamRow } from '../api/exams';
 
 @Component({
@@ -52,8 +52,12 @@ export class ApplicationView {
   learningAgreement: UploadedDocument | null = null;
   transcript: UploadedDocument | null = null;
 
+  // learning agreement modification proposals of the application
+  modifications: LAModification[] = [];
+
   // referent rejection-reason inputs
   mappingReason: { [id: number]: string } = {};
+  modificationReason: { [id: number]: string } = {};
   laReason: string = '';
   torReason: string = '';
 
@@ -132,11 +136,10 @@ export class ApplicationView {
     });
 
     // load the exam mappings of the application
-    this.applicationsApi.listApplicationExamMappings(this.applicationId).subscribe({
-      next: res => this.mappings = res,
-      error: err => console.error(err),
-      complete: () => this.cdr.markForCheck()
-    });
+    this.reloadMappings();
+
+    // load the learning agreement modification proposals (visible to every role)
+    this.loadModifications();
 
     // load the documents (learning agreement + transcript of records)
     this.applicationsApi.listApplicationDocuments(this.applicationId).subscribe({
@@ -231,6 +234,58 @@ export class ApplicationView {
     });
   }
 
+  // ---- Referent decisions on LA modification proposals ----
+  // approving keeps the proposed mapping; rejecting restores the previous one
+  // (done atomically by the backend), so the mappings are reloaded afterwards.
+
+  approveModification(mod: LAModification) {
+    this.sendModificationDecision(mod, 'approved', '');
+  }
+
+  rejectModification(mod: LAModification) {
+    let reason = (this.modificationReason[mod.id] || '').trim();
+    if (!reason) {
+      this.app.send_notification('Please provide a reason for the rejection', 'warning');
+      return;
+    }
+    this.sendModificationDecision(mod, 'rejected', reason);
+  }
+
+  private sendModificationDecision(mod: LAModification, status: string, reason: string) {
+    this.applicationsApi.decideModification(mod.id, { status: status, notes: reason }).subscribe({
+      next: res => {
+        if (res.status !== 'success') {
+          this.app.send_notification(res.error || 'Could not decide on the modification', 'error');
+          return;
+        }
+        mod.status = status;
+        mod.notes = reason;
+        this.app.send_notification('Modification ' + status, 'success');
+        this.reloadMappings();
+      },
+      error: err => this.app.send_notification(this.readError(err), 'error'),
+      complete: () => this.cdr.markForCheck()
+    });
+  }
+
+  // loads the LA modification proposals of the application
+  private loadModifications() {
+    this.applicationsApi.listModifications(this.applicationId).subscribe({
+      next: res => this.modifications = res,
+      error: err => console.error(err),
+      complete: () => this.cdr.markForCheck()
+    });
+  }
+
+  // (re)loads the exam mappings: a rejected modification restores the previous ones
+  private reloadMappings() {
+    this.applicationsApi.listApplicationExamMappings(this.applicationId).subscribe({
+      next: res => this.mappings = res,
+      error: err => console.error(err),
+      complete: () => this.cdr.markForCheck()
+    });
+  }
+
   // ---- Referent decisions on the learning agreement ----
   // approving the LA moves the application to 'created';
   // rejecting it moves the application to 'learning_agreement_pending' and needs a reason.
@@ -240,7 +295,7 @@ export class ApplicationView {
       return;
     }
     let documentId = this.learningAgreement.id;
-    this.applicationsApi.updateDocumentStatus(documentId, { status: 'approved' }).subscribe({
+    this.applicationsApi.decideDocument(documentId, { status: 'approved' }).subscribe({
       next: res => {
         if (res.status !== 'success') {
           this.app.send_notification(res.error || 'Could not approve the learning agreement', 'error');
@@ -265,7 +320,7 @@ export class ApplicationView {
       return;
     }
     let documentId = this.learningAgreement.id;
-    this.applicationsApi.updateDocumentStatus(documentId, { status: 'rejected', notes: reason }).subscribe({
+    this.applicationsApi.decideDocument(documentId, { status: 'rejected', notes: reason }).subscribe({
       next: res => {
         if (res.status !== 'success') {
           this.app.send_notification(res.error || 'Could not reject the learning agreement', 'error');
@@ -284,7 +339,7 @@ export class ApplicationView {
   // if a database trigger rejects the transition the backend returns an error,
   // which we surface to the user as a notification.
   private setApplicationStatus(status: string, successMessage: string) {
-    this.applicationsApi.updateApplication(this.applicationId, { status: status }).subscribe({
+    this.applicationsApi.updateApplicationStatus(this.applicationId, { status: status }).subscribe({
       next: res => {
         if (res.status !== 'success') {
           this.app.send_notification(res.error || 'Could not update the application status', 'error');
@@ -318,23 +373,30 @@ export class ApplicationView {
 
   // starts the mobility: moves to 'mobility_ongoing' and registers the arrival date
   startMobility() {
+    // save the arrival/departure dates first, then move the status through the
+    // dedicated route: the database triggers require the arrival date to be stored
+    // before the 'mobility_ongoing' transition is allowed.
     this.applicationsApi.updateApplication(this.applicationId, {
-      status: 'mobility_ongoing',
       date_arrived: this.mobilityStartDate || undefined,
       date_departure: this.mobilityEndDate || undefined
     }).subscribe({
-      next: res => {
-        if (res.status !== 'success') {
-          this.app.send_notification(res.error || 'Could not start the mobility', 'error');
-          return;
-        }
-        this.application.status = 'mobility_ongoing';
-        this.application.date_arrived = this.mobilityStartDate || null;
-        this.application.date_departure = this.mobilityEndDate || null;
-        this.app.send_notification('Mobility started', 'success');
+      next: () => {
+        this.applicationsApi.updateApplicationStatus(this.applicationId, { status: 'mobility_ongoing' }).subscribe({
+          next: res => {
+            if (res.status !== 'success') {
+              this.app.send_notification(res.error || 'Could not start the mobility', 'error');
+              return;
+            }
+            this.application.status = 'mobility_ongoing';
+            this.application.date_arrived = this.mobilityStartDate || null;
+            this.application.date_departure = this.mobilityEndDate || null;
+            this.app.send_notification('Mobility started', 'success');
+          },
+          error: err => this.app.send_notification(this.readError(err), 'error'),
+          complete: () => this.cdr.markForCheck()
+        });
       },
-      error: err => this.app.send_notification(this.readError(err), 'error'),
-      complete: () => this.cdr.markForCheck()
+      error: err => this.app.send_notification(this.readError(err), 'error')
     });
   }
 
@@ -404,7 +466,7 @@ export class ApplicationView {
       this.app.send_notification('No document to approve', 'warning');
       return;
     }
-    this.applicationsApi.updateDocumentStatus(this.transcript.id, { status: 'approved' }).subscribe({
+    this.applicationsApi.decideDocument(this.transcript.id, { status: 'approved' }).subscribe({
       next: res => {
         if (res.status === 'success') {
           this.transcript!.status = 'approved';
@@ -425,7 +487,7 @@ export class ApplicationView {
     if (!this.transcript) {
       return;
     }
-    this.applicationsApi.updateDocumentStatus(this.transcript.id, { status: 'approved' }).subscribe({
+    this.applicationsApi.decideDocument(this.transcript.id, { status: 'approved' }).subscribe({
       next: res => {
         if (res.status === 'success') {
           this.transcript!.status = 'approved';
@@ -449,7 +511,7 @@ export class ApplicationView {
       this.app.send_notification('Please provide a reason for the rejection', 'warning');
       return;
     }
-    this.applicationsApi.updateDocumentStatus(this.transcript.id, { status: 'rejected', notes: reason }).subscribe({
+    this.applicationsApi.decideDocument(this.transcript.id, { status: 'rejected', notes: reason }).subscribe({
       next: res => {
         if (res.status === 'success') {
           this.transcript!.status = 'rejected';

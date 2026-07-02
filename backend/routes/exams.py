@@ -12,11 +12,12 @@ from auth import (
     require_roles,
 )
 from models import db, Exam, MappedExam, Application, UploadedDocument
+from routes.users import user_in_institution
 
 exams_blueprint = Blueprint("exams", __name__)
 
 
-# NOTE: [GET] /exam/list/:id_institution
+# OK: [GET] /exam/list/:id_institution
 # returns the list of exam rows that belong to the given institution
 @exams_blueprint.route("/exam/list/<int:id_inst>", methods=["GET"])
 @custom_jwt_required()
@@ -31,7 +32,7 @@ def list_exams_by_institution(id_inst):
         return jsonify({"error": str(e)}), 500
 
 
-# NOTE: [GET] /exam/:id
+# OK: [GET] /exam/:id
 # returns the information of the exam row with the given id
 @exams_blueprint.route("/exam/<int:id>", methods=["GET"])
 @custom_jwt_required()
@@ -45,7 +46,7 @@ def get_exam(id):
         return jsonify({"error": str(e)}), 500
 
 
-# NOTE: [POST] /exam/insert
+# OK: [POST] /exam/insert
 # inserts a new exam row using the json body data
 @exams_blueprint.route("/exam/insert", methods=["POST"])
 @custom_jwt_required()
@@ -55,6 +56,10 @@ def insert_exam():
         data = request.get_json()
         if not data:
             return jsonify({"status": "failed", "error": "missing body"}), 400
+
+        # validate user access
+        if not user_in_institution(g.current_user, data.get("id_institution")):
+            return jsonify({"status": "failed", "error": "access restricted"}), 403
 
         new_exam = Exam(
             code=data.get("code"),
@@ -70,7 +75,7 @@ def insert_exam():
         return jsonify({"status": "failed", "error": str(e)}), 500
 
 
-# NOTE: [POST] /exam/delete/:id
+# OK: [POST] /exam/delete/:id
 # deletes the exam row identified by :id
 @exams_blueprint.route("/exam/delete/<int:id>", methods=["POST"])
 @custom_jwt_required()
@@ -80,6 +85,11 @@ def delete_exam(id):
         exam = Exam.query.get(id)
         if not exam:
             return jsonify({"status": "failed", "error": "exam not found"}), 404
+
+        # validate user access
+        if not user_in_institution(g.current_user, exam.id_institution):
+            return jsonify({"status": "failed", "error": "access restricted"}), 403
+
         db.session.delete(exam)
         db.session.commit()
         return jsonify({"status": "success"}), 200
@@ -87,8 +97,9 @@ def delete_exam(id):
         db.session.rollback()
         return jsonify({"status": "failed", "error": str(e)}), 500
 
+#   -------  EXAM MAPPING SECTION  -------
 
-# NOTE: [POST] /exam/mapping/insert/:application_id
+# TEST: [POST] /exam/mapping/insert/:application_id
 # inserts a new mapped_exams row linking a host exam and a sending exam for an application
 @exams_blueprint.route("/exam/mapping/insert/<int:application_id>", methods=["POST"])
 @custom_jwt_required()
@@ -103,9 +114,7 @@ def insert_mapped_exam(application_id):
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
         if not can_view_application(application, g.current_user, g.current_user_role):
-            return jsonify(
-                {"status": "failed", "error": "cannot add a mapping to this application"}
-            ), 403
+            return jsonify({"status": "failed", "error": "cannot add a mapping to this application"}), 403
 
         new_mapping = MappedExam(
             application_id=application_id,
@@ -113,6 +122,7 @@ def insert_mapped_exam(application_id):
             sending_exam_id=data.get("sending_exam_id"),
             notes=data.get("notes", ""),
         )
+        # FIX: what is this ahahahah, obsolute previous_id, there is a new way of storing history (must be removed across all domains).
         if "previous_id" in data:
             new_mapping.previous_id = data["previous_id"]
 
@@ -124,15 +134,24 @@ def insert_mapped_exam(application_id):
         return jsonify({"status": "failed", "error": str(e)}), 500
 
 
-# NOTE: [POST] /exam/mapping/delete/:id
+# OK: [POST] /exam/mapping/delete/:id
 # deletes the mapped_exams row identified by :id
 @exams_blueprint.route("/exam/mapping/delete/<int:id>", methods=["POST"])
 @custom_jwt_required()
+@require_roles(ROLE_STUDENT)
 def delete_mapped_exam(id):
     try:
         mapping = MappedExam.query.get(id)
         if not mapping:
             return jsonify({"status": "failed", "error": "mapping not found"}), 404
+
+        application = Application.query.get(mapping.application_id)
+        if not application:
+            return jsonify({"status": "failed", "error": "application not found"}), 404
+        if not can_view_application(application, g.current_user, g.current_user_role):
+            return jsonify( {"status": "failed", "error": "cannot remove a mapping to this application"}), 403
+        # TODO : should we also check if such operation is allowed? as in if the application is in "ongoing" the mapped exam shouldn't be changed, but my concerns are related to the fact that maybe LamodifcationExam is in charge of such operation
+
         db.session.delete(mapping)
         db.session.commit()
         return jsonify({"status": "success"}), 200
@@ -142,10 +161,11 @@ def delete_mapped_exam(id):
 
 
 # NOTE: [POST] /exam/mapping/update/:id
+# FIX: inst updating a route supposed to mean that laExamModification should be in charge of it?
 # updates the status of the mapped_exam row of given id (e.g. approved/rejected) and decision info
 @exams_blueprint.route("/exam/mapping/update/<int:id>", methods=["POST"])
 @custom_jwt_required()
-@require_roles(ROLE_REFERENT, ROLE_OVERSEAS)
+@require_roles(ROLE_REFERENT)
 def update_mapped_exam_status(id):
     try:
         data = request.get_json()
@@ -160,9 +180,7 @@ def update_mapped_exam_status(id):
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
         if not can_view_application(application, g.current_user, g.current_user_role):
-            return jsonify(
-                {"status": "failed", "error": "cannot decide on this exam"}
-            ), 403
+            return jsonify( {"status": "failed", "error": "cannot decide on this exam"}), 403
 
         if "status" in data:
             mapping.status = data["status"]
@@ -177,7 +195,7 @@ def update_mapped_exam_status(id):
         return jsonify({"status": "failed", "error": str(e)}), 500
 
 
-# NOTE: [POST] /exam/mapping/passed/:id
+# OK: [POST] /exam/mapping/passed/:id
 # registers grade and date_passed on the mapped_exam row of given id
 @exams_blueprint.route("/exam/mapping/passed/<int:id>", methods=["POST"])
 @custom_jwt_required()
@@ -195,10 +213,8 @@ def set_mapped_exam_passed(id):
         application = Application.query.get(mapping.application_id)
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
-
-        # only the owning student may enter the grade/date of their own exams
-        if application.user_id != g.current_user_id:
-            return jsonify({"status": "failed", "error": "student cannot modify this exam"}), 403
+        if not can_view_application(application, g.current_user, g.current_user_role):
+            return jsonify({"status": "failed", "error": "cannot modify this application"}), 403
 
         # an approved exam is locked: its grade/date cannot be changed anymore
         if mapping.status == "approved":
@@ -209,7 +225,7 @@ def set_mapped_exam_passed(id):
             application_id=application.id, document_type="transcript"
         ).first()
         if not transcript_exists:
-            return jsonify({"status": "failed", "error": "transcript of records not uploaded yet"}), 400
+            return jsonify({"status": "failed", "error": "transcript of records not uploaded yet, please upload the transcript of records"}), 400
 
         if "grade" in data:
             mapping.grade = data["grade"]
@@ -227,7 +243,7 @@ def set_mapped_exam_passed(id):
         return jsonify({"status": "failed", "error": str(e)}), 500
 
 
-# NOTE: [GET] /exam/mapped/info/status
+# OK: [GET] /exam/mapped/info/status
 # returns the list of allowed status values for mapped exams
 @exams_blueprint.route("/exam/mapped/info/status", methods=["GET"])
 def get_mapped_exam_status_values():

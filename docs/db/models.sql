@@ -73,8 +73,8 @@ CREATE TABLE applications (
 	),
 	CONSTRAINT valid_semester CHECK (semester IN ('first','second','full')),
 	CONSTRAINT valid_status CHECK (status IN (
-		'created',
 		'learning_agreement_pending',
+		'created',
 		'pre_departure_completed',
 		'mobility_ongoing',
 		'exam_recognition',
