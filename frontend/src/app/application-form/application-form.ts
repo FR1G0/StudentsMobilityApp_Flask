@@ -7,7 +7,7 @@ import { App } from '../app';
 import { Cookies } from '../cookies';
 import { User, Users } from '../api/users';
 import { Institutions, PartnerLink } from '../api/institutions';
-import { Applications, ApplicationInsertBody, ApplicationUpdateBody, UploadedDocument } from '../api/applications';
+import { Applications, ApplicationInsertBody, ApplicationUpdateBody, UploadedDocument, LAModification, ModificationMappingItem } from '../api/applications';
 import { Exams, Exam, MappedExamRow } from '../api/exams';
 
 @Component({
@@ -77,6 +77,10 @@ export class ApplicationForm {
   existingDocument: UploadedDocument | null = null;
   existingTranscript: UploadedDocument | null = null;
   transcriptFile: File | null = null;
+
+  // learning agreement modification proposals (status: mobility_ongoing)
+  modifications: LAModification[] = [];
+  modificationDescription: string = '';
 
   isSubmitting = false;
   submitError = '';
@@ -161,8 +165,11 @@ export class ApplicationForm {
             this.examPairs.push({
               local_exam_id: exam_map.sending_exam_id,
               host_exam_id: exam_map.host_exam_id,
+              mapping_id: exam_map.id,
               status: exam_map.status,
-              notes: exam_map.notes
+              notes: exam_map.notes,
+              grade: exam_map.grade > 0 ? exam_map.grade : null,
+              date_passed: exam_map.date_passed || ''
             });
             this.existingMappingIds.push(exam_map.id);
           }
@@ -176,6 +183,9 @@ export class ApplicationForm {
         },
         complete : () => { this.cdr.markForCheck(); }
       });
+
+      // get the learning agreement modification proposals
+      this.loadModifications();
 
       // get selectedFile
       this.applicationsApi.listApplicationDocuments(this.editApplicationId).subscribe({
@@ -247,6 +257,18 @@ export class ApplicationForm {
   }
 
   submitApplication() {
+    // during the mobility the submit button has dedicated behaviours:
+    // mobility_ongoing  -> save the arrival date and propose an LA modification
+    // exam_recognition  -> save the departure date and the exam results
+    if (this.action === 'edit' && this.status === 'mobility_ongoing') {
+      this.submitMobilityChanges();
+      return;
+    }
+    if (this.action === 'edit' && this.status === 'exam_recognition') {
+      this.submitRecognitionResults();
+      return;
+    }
+
     if (!this.year || !this.semester || !this.host_institution_id) {
       this.submitError = 'Please fill in all required fields.';
       return;
@@ -418,34 +440,201 @@ export class ApplicationForm {
 
   // ---- Student mobility lifecycle ----
   // start mobility moves the application to 'mobility_ongoing' and registers the
-  // arrival date; end mobility moves it to 'exam_recognition' so the transcript of
-  // records can then be uploaded. the database triggers validate each transition.
+  // arrival date. ending the mobility is done from the application view. the
+  // database triggers validate each transition.
 
   startMobility() {
     this.studentSetStatus('mobility_ongoing', 'Mobility started');
   }
 
-  endMobility() {
-    this.studentSetStatus('exam_recognition', 'Mobility ended');
-  }
-
   private studentSetStatus(newStatus: string, message: string) {
+    // first save the mobility dates, then move the status through the dedicated
+    // status route. the database triggers require the arrival/departure date to be
+    // stored before the 'mobility_ongoing'/'exam_recognition' transitions.
     this.applicationsApi.updateApplication(this.editApplicationId, {
-      status: newStatus,
       date_arrived: this.start_date || undefined,
       date_departure: this.end_date || undefined
     }).subscribe({
-      next: res => {
-        if (res.status !== 'success') {
-          this.app.send_notification(res.error || 'Operation failed', 'error');
+      next: () => {
+        this.applicationsApi.updateApplicationStatus(this.editApplicationId, { status: newStatus }).subscribe({
+          next: res => {
+            if (res.status !== 'success') {
+              this.app.send_notification(res.error || 'Operation failed', 'error');
+              return;
+            }
+            this.status = newStatus;
+            this.app.send_notification(message, 'success');
+          },
+          error: err => this.app.send_notification(this.backendError(err, 'Operation failed'), 'error'),
+          complete: () => this.cdr.markForCheck()
+        });
+      },
+      error: err => this.app.send_notification(this.backendError(err, 'Operation failed'), 'error')
+    });
+  }
+
+  // ---- Learning Agreement modifications (status: mobility_ongoing) ----
+  // the submit button saves the actual arrival date and, when a description is
+  // given, proposes an LA modification: the backend snapshots the current
+  // mapping and replaces it with the proposed one in a single transaction.
+
+  private submitMobilityChanges() {
+    const description = this.modificationDescription.trim();
+    if (!description && !this.start_date) {
+      this.app.send_notification('Set the arrival date or describe a modification', 'warning');
+      return;
+    }
+
+    this.isSubmitting = true;
+    this.submitError = '';
+
+    if (!this.start_date) {
+      this.proposeModification(description);
+      return;
+    }
+    this.applicationsApi.updateApplication(this.editApplicationId, { date_arrived: this.start_date }).subscribe({
+      next: () => {
+        if (!description) {
+          this.finishSubmit('Arrival date saved');
           return;
         }
-        this.status = newStatus;
-        this.app.send_notification(message, 'success');
+        this.proposeModification(description);
       },
-      error: err => this.app.send_notification(this.backendError(err, 'Operation failed'), 'error'),
-      complete: () => this.cdr.markForCheck()
+      error: err => this.failSubmit(err, 'Could not save the arrival date')
     });
+  }
+
+  private proposeModification(description: string) {
+    // the backend requires the learning agreement document of the application
+    if (!this.existingDocument) {
+      this.failSubmit(null, 'A learning agreement must be uploaded before proposing a modification');
+      return;
+    }
+
+    const mapping: ModificationMappingItem[] = [];
+    for (let pair of this.examPairs) {
+      if (pair.local_exam_id > 0 && pair.host_exam_id > 0) {
+        mapping.push({ sending_exam_id: pair.local_exam_id, host_exam_id: pair.host_exam_id });
+      }
+    }
+    if (mapping.length === 0) {
+      this.failSubmit(null, 'The proposed mapping needs at least one exam pair');
+      return;
+    }
+
+    this.applicationsApi.createModification(this.editApplicationId, {
+      description: description,
+      document_id: this.existingDocument.id,
+      mapping: mapping
+    }).subscribe({
+      next: () => this.finishSubmit('Modification proposed'),
+      error: err => this.failSubmit(err, 'Could not propose the modification')
+    });
+  }
+
+  // ---- Exam results (status: exam_recognition) ----
+  // the submit button saves the actual departure date and registers the grade
+  // and passing date of each mapped exam through the dedicated backend route.
+
+  private submitRecognitionResults() {
+    const results = this.gradedPairs();
+    if (!this.end_date && results.length === 0) {
+      this.app.send_notification('Set the departure date or fill in an exam result', 'warning');
+      return;
+    }
+
+    this.isSubmitting = true;
+    this.submitError = '';
+
+    if (!this.end_date) {
+      this.submitExamResults(results);
+      return;
+    }
+    this.applicationsApi.updateApplication(this.editApplicationId, { date_departure: this.end_date }).subscribe({
+      next: () => {
+        if (results.length === 0) {
+          this.finishSubmit('Departure date saved');
+          return;
+        }
+        this.submitExamResults(results);
+      },
+      error: err => this.failSubmit(err, 'Could not save the departure date')
+    });
+  }
+
+  // exam pairs carrying a grade and a date to register (approved ones are locked)
+  private gradedPairs(): ExamPair[] {
+    const results: ExamPair[] = [];
+    for (let pair of this.examPairs) {
+      if (pair.mapping_id && pair.status !== 'approved' && pair.grade && pair.date_passed) {
+        results.push(pair);
+      }
+    }
+    return results;
+  }
+
+  private submitExamResults(results: ExamPair[]) {
+    let done = 0;
+    const finish = () => {
+      if (++done === results.length) this.finishSubmit('Exam results saved');
+    };
+    for (let pair of results) {
+      this.examsApi.setMappedExamPassed(pair.mapping_id!, {
+        grade: pair.grade!,
+        date_passed: pair.date_passed!
+      }).subscribe({
+        next: finish,
+        error: err => {
+          this.app.send_notification(this.backendError(err, 'Could not save an exam result'), 'warning');
+          finish();
+        }
+      });
+    }
+  }
+
+  // loads the LA modification proposals of the application
+  private loadModifications() {
+    this.applicationsApi.listModifications(this.editApplicationId).subscribe({
+      next: res => this.modifications = res,
+      error: err => console.error(err),
+      complete: () => { this.cdr.markForCheck(); }
+    });
+  }
+
+  // ends a submit with a success notification and goes back to the list
+  private finishSubmit(message: string) {
+    this.isSubmitting = false;
+    this.app.send_notification(message, 'success');
+    this.router.navigate(['/applications']);
+  }
+
+  // ends a submit surfacing the backend error to the user
+  private failSubmit(err: any, fallback: string) {
+    if (err) console.error(err);
+    this.isSubmitting = false;
+    this.submitError = this.backendError(err, fallback);
+    this.app.send_notification(this.submitError, 'error');
+    this.cdr.markForCheck();
+  }
+
+  // core application fields are locked once the mobility has started
+  coreFieldsLocked(): boolean {
+    return this.action === 'edit' &&
+      (this.status === 'mobility_ongoing' || this.status === 'exam_recognition' || this.status === 'closed');
+  }
+
+  // the exam pairs stay editable during the mobility (to propose modifications)
+  examPairsLocked(): boolean {
+    return this.action === 'edit' &&
+      (this.status === 'exam_recognition' || this.status === 'closed');
+  }
+
+  // text of the single submit button, based on the workflow phase
+  submitLabel(): string {
+    if (this.action !== 'edit') return 'Submit Application';
+    if (this.status === 'mobility_ongoing') return 'Submit Modification';
+    if (this.status === 'exam_recognition') return 'Submit Results';
+    return 'Save Changes';
   }
 
   onTranscriptSelected(event: Event) {
@@ -502,7 +691,12 @@ export class ApplicationForm {
 interface ExamPair {
   local_exam_id: number;
   host_exam_id: number;
+  // id of the mapped_exams row this pair comes from (edit mode only)
+  mapping_id?: number;
   // decision info coming from the existing mapping (used to show a rejection note)
   status?: string;
   notes?: string;
+  // exam result filled in by the student during 'exam_recognition'
+  grade?: number | null;
+  date_passed?: string;
 }
