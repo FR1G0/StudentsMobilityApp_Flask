@@ -87,7 +87,7 @@ def delete_exam(id):
             return jsonify({"status": "failed", "error": "exam not found"}), 404
 
         # validate user access
-        if not user_in_institution(g.current_user, exam.exam.id_institution):
+        if not user_in_institution(g.current_user, exam.id_institution):
             return jsonify({"status": "failed", "error": "access restricted"}), 403
 
         db.session.delete(exam)

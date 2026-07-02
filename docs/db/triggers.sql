@@ -120,7 +120,7 @@ BEGIN
 	END IF;
 
 	-- learning_agreement_pending -> pre_departure_completed
-	IF NEW.status='pre_departure_completed' AND  OLD.status='created' THEN
+	IF NEW.status='pre_departure_completed' AND OLD.status='created' THEN
 		-- check if associated learning agreement exists and has been approved
 		IF NOT EXISTS ( SELECT 1 
 				FROM uploaded_documents
@@ -139,7 +139,7 @@ BEGIN
 			) THEN
 			RAISE EXCEPTION 'cannot move to pre_departure_completed: all mapped exams must be approved';
 		END IF;
-	ELSEIF NEW.status='pre_departure_completed' AND OLD.status<>'learning_agreement_pending' THEN
+	ELSEIF NEW.status='pre_departure_completed' AND OLD.status<>'created' THEN
 		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 
@@ -172,10 +172,8 @@ BEGIN
 		-- check if all mapped_exams are graded (if exists at least 1 that has no grade)
 		IF EXISTS(SELECT 1
 				FROM mapped_exams
-				WHERE application_id=NEW.id
-				AND grade IS NULL 
-				OR grade=-1
-				OR status <> 'approved'
+				WHERE application_id=NEW.id AND 
+				(grade IS NULL OR grade=-1 OR status <> 'approved')
 			) THEN
 			RAISE EXCEPTION 'all exams must be approved and require a grade';
 		END IF;
