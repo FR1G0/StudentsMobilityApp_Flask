@@ -229,6 +229,60 @@ def delete_application(id):
 
 #   -------  APPLICATION INFORMATION SECTION  -------
 
+# OK: [GET] /applications/info/list
+# returns the list of applications visible to the current user (same role
+# scoping as /applications) together with their sending/host institutions,
+# the owner student and the referent (joined data), in json format
+@applications_blueprint.route("/applications/info/list", methods=["GET"])
+@custom_jwt_required()
+def list_application_info():
+    user = g.current_user
+    role = g.current_user_role
+    if role == ROLE_STUDENT:
+        applications = Application.query.filter_by(user_id=user.id).all()
+    elif role == ROLE_REFERENT:
+        applications = Application.query.filter_by(referent_id=user.id).all()
+    elif role == ROLE_OVERSEAS:
+        applications = Application.query.filter_by(
+            sending_institution=user.id_institution
+        ).all()
+    else:
+        return jsonify({"error": "role not authorized"}), 403
+
+    result = []
+    for application in applications:
+        sending = Institution.query.get(application.sending_institution)
+        host = Institution.query.get(application.host_institution)
+        owner = User.query.get(application.user_id)
+        referent = User.query.get(application.referent_id)
+
+        item = application.to_dict()
+        item["sending"] = {"id": sending.id, "name": sending.name} if sending else None
+        item["host"] = {"id": host.id, "name": host.name} if host else None
+        item["user"] = (
+            {
+                "id": owner.id,
+                "firstname": owner.firstname,
+                "lastname": owner.lastname,
+                "email": owner.email,
+            }
+            if owner
+            else None
+        )
+        item["referent"] = (
+            {
+                "id": referent.id,
+                "firstname": referent.firstname,
+                "lastname": referent.lastname,
+                "email": referent.email,
+            }
+            if referent
+            else None
+        )
+        result.append(item)
+    return jsonify(result), 200
+
+
 # OK: [GET] /application/info/semester
 # returns the list of allowed semester values
 # for frontend
