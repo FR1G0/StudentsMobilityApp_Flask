@@ -121,15 +121,16 @@ def insert_mapped_exam(application_id):
         if not can_view_application(application, g.current_user, g.current_user_role):
             return jsonify({"status": "failed", "error": "cannot add a mapping to this application"}), 403
 
+        # prevent adding exam mappings when associated application status is not adequate
+        if application.status not in ('learning_agreement_pending','created','mobility_ongoing'):
+            return jsonify({"status": "failed", "error": f"cannot add a mapping to this application in status {application.status}"}), 403
+
         new_mapping = MappedExam(
             application_id=application_id,
             host_exam_id=data.get("host_exam_id"),
             sending_exam_id=data.get("sending_exam_id"),
             notes=data.get("notes", ""),
         )
-        # FIX: what is this ahahahah, obsolute previous_id, there is a new way of storing history (must be removed across all domains).
-        if "previous_id" in data:
-            new_mapping.previous_id = data["previous_id"]
 
         db.session.add(new_mapping)
         db.session.commit()
@@ -156,7 +157,11 @@ def delete_mapped_exam(id):
             return jsonify({"status": "failed", "error": "application not found"}), 404
         if not can_view_application(application, g.current_user, g.current_user_role):
             return jsonify( {"status": "failed", "error": "cannot remove a mapping to this application"}), 403
-        # TODO : should we also check if such operation is allowed? as in if the application is in "ongoing" the mapped exam shouldn't be changed, but my concerns are related to the fact that maybe LamodifcationExam is in charge of such operation
+
+        # prevent exam deletion when application is not in adequate status
+        if application.status not in ('learning_agreement_pending','created','mobility_ongoing'):
+            return jsonify( {"status": "failed", "error": f"cannot remove mapping from this application in status {application.status}"}), 403
+
 
         db.session.delete(mapping)
         db.session.commit()
@@ -167,10 +172,8 @@ def delete_mapped_exam(id):
         return jsonify({"status": "failed", "error": msg}), 500
 
 
-# NOTE: [POST] /exam/mapping/update/:id
-# FIX: inst updating a route supposed to mean that laExamModification should be in charge of it?
-# updates the status of the mapped_exam row of given id (e.g. approved/rejected) and decision info
-@exams_blueprint.route("/exam/mapping/update/<int:id>", methods=["POST"])
+# NOTE: [POST] /exam/mapping/:id/decision
+@exams_blueprint.route("/exam/mapping/<int:id>/decision", methods=["POST"])
 @custom_jwt_required()
 @require_roles(ROLE_REFERENT)
 def update_mapped_exam_status(id):
@@ -189,6 +192,10 @@ def update_mapped_exam_status(id):
         if not can_view_application(application, g.current_user, g.current_user_role):
             return jsonify( {"status": "failed", "error": "cannot decide on this exam"}), 403
 
+        # prevenet referent to make changes oustide of allowed application status scope
+        if application in ('pre_departure_completed','closed'):
+            return jsonify( {"status": "failed", "error": f"cannot decide on this exam when associated application is in {application.status}"}), 403
+
         if "status" in data:
             mapping.status = data["status"]
         if "notes" in data:
@@ -201,6 +208,8 @@ def update_mapped_exam_status(id):
         db.session.rollback()
         msg = extract_db_error(e)
         return jsonify({"status": "failed", "error": msg}), 500
+
+
 
 
 # OK: [POST] /exam/mapping/passed/:id
@@ -223,6 +232,10 @@ def set_mapped_exam_passed(id):
             return jsonify({"status": "failed", "error": "application not found"}), 404
         if not can_view_application(application, g.current_user, g.current_user_role):
             return jsonify({"status": "failed", "error": "cannot modify this application"}), 403
+
+        # prevent exam grading outside of exam_recognition scope
+        if application.status != 'exam_recognition':
+            return jsonify({"status": "failed", "error": f"student cannot grade this exam when application is in {application.status} status"}), 403
 
         # an approved exam is locked: its grade/date cannot be changed anymore
         if mapping.status == "approved":

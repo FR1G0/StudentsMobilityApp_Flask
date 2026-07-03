@@ -39,7 +39,7 @@
         </div>
         <ul class="flex flex-col gap-2 px-4">
           @for(link of links; track link.href) {
-            @if((!link.loginRequired || isLoggedIn) && link.allowed_roles.includes(user_data.role)) {
+            @if(!link.loginRequired || (isLoggedIn && link.allowed_roles.includes(user_data.role))) {
               <li>
                 <a [routerLink]="link.href" class="flex items-center rounded-sm px-2 text-sm text-text-secondary">
                   <span class="text-lg {{link.icon}} pe-2"></span>

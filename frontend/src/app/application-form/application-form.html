@@ -420,7 +420,7 @@
             </div>
             <span class="mdi mdi-download text-text-muted group-hover:text-blue-400/80 text-base shrink-0 transition-colors duration-100"></span>
           </button>
-          @if (!coreFieldsLocked()) {
+          @if (!coreFieldsLocked() || status === 'mobility_ongoing') {
             <label
               for="la-upload"
               class="flex items-center gap-1 px-2.5 py-1 rounded text-[0.65rem] text-text-secondary border border-border-default hover:border-border-strong hover:bg-bg-overlay cursor-pointer transition-all duration-100 shrink-0"
@@ -529,7 +529,19 @@
     }
 
     <div class="flex items-center justify-between pt-4 border-t border-border-subtle">
-      <div></div>
+      <div>
+        <!-- mobility_ongoing: the student can end the mobility from here -->
+        @if (action === 'edit' && user.role === 'student' && status === 'mobility_ongoing') {
+          <button
+            type="button"
+            (click)="endMobility()"
+            class="flex items-center gap-1.5 px-4 py-2 rounded text-[0.7rem] font-medium bg-[#1a1026] border border-[#3d1a52] text-[#a04dd4] hover:bg-[#20143a] transition-all duration-150"
+          >
+            <span class="mdi mdi-flag-checkered text-sm"></span>
+            End Mobility
+          </button>
+        }
+      </div>
       <div class="flex items-center gap-2">
         <button
           type="button"

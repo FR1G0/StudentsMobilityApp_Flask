@@ -76,6 +76,12 @@ class Application(db.Model):
             'date_arrived IS NULL OR date_departure IS NULL OR date_departure >= date_arrived',
             name='valid_mobility_dates'
         ),
+        db.CheckConstraint(
+            '(date_arrived IS NULL OR EXTRACT(YEAR FROM date_arrived) IN (year, year + 1)) '
+            'AND '
+            '(date_departure IS NULL OR EXTRACT(YEAR FROM date_departure) IN (year, year + 1))',
+            name='valid_academic_year'
+        ),
         db.CheckConstraint("semester IN ('first', 'second', 'full')", name='valid_semester'),
         db.CheckConstraint(
             "status IN ('created', 'learning_agreement_pending', 'pre_departure_completed', 'mobility_ongoing', 'exam_recognition', 'closed')",
@@ -133,7 +139,6 @@ class MappedExam(db.Model):
     status = db.Column(db.String(32), nullable=False, default='pending')
     decision_date = db.Column(db.DateTime(timezone=True), nullable=True)
     notes = db.Column(db.Text, default='')
-    previous_id = db.Column(db.Integer, nullable=False, default=-1)
     host_exam_id = db.Column(db.Integer, db.ForeignKey('exams.id', ondelete='RESTRICT', onupdate='CASCADE'), nullable=False)
     sending_exam_id = db.Column(db.Integer, db.ForeignKey('exams.id', ondelete='RESTRICT', onupdate='CASCADE'), nullable=False)
 

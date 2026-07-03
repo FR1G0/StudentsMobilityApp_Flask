@@ -100,9 +100,10 @@ export class ApplicationsList implements OnInit {
 
   shortenStatus(status: string): string {
     if(status=='learning_agreement_pending') return 'la pending';
-    if(status=='pre_departure_completed') return 'pre completed';
+    if(status=='pre_departure_completed') return 'pre dept completed';
+    if(status=='exam_recognition') return 'exam recognition';
     if(status=='mobility_ongoing') return 'ongoing';
-    if(status=='learning_agreement_pending') return 'closed';
+    if(status=='closed') return 'closed';
     return status;
   }
 
