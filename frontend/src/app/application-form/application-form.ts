@@ -72,7 +72,9 @@ export class ApplicationForm {
   hostExams: Exam[] = [];
 
   examPairs: ExamPair[] = [{ local_exam_id: 0,  host_exam_id: 0 }];
-  existingMappingIds: number[] = [];
+  // immutable snapshot of the mappings as loaded from the backend, used to diff
+  // against the edited examPairs on save (examPairs get mutated in place by ngModel)
+  loadedMappings: LoadedMapping[] = [];
   selectedFile: File | null = null;
   existingDocument: UploadedDocument | null = null;
   existingTranscript: UploadedDocument | null = null;
@@ -160,7 +162,7 @@ export class ApplicationForm {
         next: res => {
           this.onHostInstitutionChange();
           this.examPairs = [];
-          this.existingMappingIds = [];
+          this.loadedMappings = [];
           for(let exam_map of res) {
             this.examPairs.push({
               local_exam_id: exam_map.sending_exam_id,
@@ -171,7 +173,11 @@ export class ApplicationForm {
               grade: exam_map.grade > 0 ? exam_map.grade : null,
               date_passed: exam_map.date_passed || ''
             });
-            this.existingMappingIds.push(exam_map.id);
+            this.loadedMappings.push({
+              id: exam_map.id,
+              sending_exam_id: exam_map.sending_exam_id,
+              host_exam_id: exam_map.host_exam_id
+            });
           }
           // keep at least one empty row so the user can still edit
           if (this.examPairs.length === 0) {
@@ -388,24 +394,41 @@ export class ApplicationForm {
 
 
   private handleExamMappings(applicationId: number) {
+    const pairKey = (sending: number, host: number) => sending + '->' + host;
     const validPairs = this.examPairs.filter(p => p.local_exam_id > 0 && p.host_exam_id > 0);
 
-    // in edit mode, drop the previous mappings first so removals/changes take
-    // effect and re-inserts do not collide with the unique constraints
-    if (this.existingMappingIds.length > 0) {
-      let deleted = 0;
-      const total = this.existingMappingIds.length;
-      const afterDelete = () => {
-        deleted = deleted + 1;
-        if (deleted === total) {
-          this.insertMappings(applicationId, validPairs);
-        }
-      };
-      for (let mappingId of this.existingMappingIds) {
-        this.examsApi.deleteMappedExam(mappingId).subscribe({ next: afterDelete, error: afterDelete });
+    // diff the edited pairs against the snapshot loaded from the backend
+    const loadedKeys = new Set(this.loadedMappings.map(m => pairKey(m.sending_exam_id, m.host_exam_id)));
+    const currentKeys = new Set(validPairs.map(p => pairKey(p.local_exam_id, p.host_exam_id)));
+
+    // only touch what actually changed: delete the loaded mappings that are gone,
+    // insert the pairs that are new; identical pairs are left untouched. a changed
+    // pair (same exam, different target) appears in both lists, so it is handled.
+    const toDelete = this.loadedMappings.filter(m => !currentKeys.has(pairKey(m.sending_exam_id, m.host_exam_id)));
+    const toInsert = validPairs.filter(p => !loadedKeys.has(pairKey(p.local_exam_id, p.host_exam_id)));
+
+    // nothing changed in the exam mapping: skip the delete/insert round-trip
+    if (toDelete.length === 0 && toInsert.length === 0) {
+      this.goToApplications();
+      return;
+    }
+
+    if (toDelete.length === 0) {
+      this.insertMappings(applicationId, toInsert);
+      return;
+    }
+
+    // delete removed/changed mappings first so the re-inserts do not collide with
+    // the unique constraints, then insert the new ones
+    let deleted = 0;
+    const afterDelete = () => {
+      deleted = deleted + 1;
+      if (deleted === toDelete.length) {
+        this.insertMappings(applicationId, toInsert);
       }
-    } else {
-      this.insertMappings(applicationId, validPairs);
+    };
+    for (let mapping of toDelete) {
+      this.examsApi.deleteMappedExam(mapping.id).subscribe({ next: afterDelete, error: afterDelete });
     }
   }
 
@@ -440,11 +463,15 @@ export class ApplicationForm {
 
   // ---- Student mobility lifecycle ----
   // start mobility moves the application to 'mobility_ongoing' and registers the
-  // arrival date. ending the mobility is done from the application view. the
-  // database triggers validate each transition.
+  // arrival date. end mobility moves it to 'exam_recognition'. the database
+  // triggers validate each transition.
 
   startMobility() {
     this.studentSetStatus('mobility_ongoing', 'Mobility started');
+  }
+
+  endMobility() {
+    this.studentSetStatus('exam_recognition', 'Mobility ended');
   }
 
   private studentSetStatus(newStatus: string, message: string) {
@@ -505,8 +532,9 @@ export class ApplicationForm {
   }
 
   private proposeModification(description: string) {
-    // the backend requires the learning agreement document of the application
-    if (!this.existingDocument) {
+    // the backend requires the learning agreement document of the application:
+    // either the existing one or a replacement the student just selected
+    if (!this.existingDocument && !this.selectedFile) {
       this.failSubmit(null, 'A learning agreement must be uploaded before proposing a modification');
       return;
     }
@@ -522,14 +550,74 @@ export class ApplicationForm {
       return;
     }
 
-    this.applicationsApi.createModification(this.editApplicationId, {
-      description: description,
-      document_id: this.existingDocument.id,
-      mapping: mapping
-    }).subscribe({
-      next: () => this.finishSubmit('Modification proposed'),
-      error: err => this.failSubmit(err, 'Could not propose the modification')
+    // if the student replaced the learning agreement, upload the new file first
+    // and attach the freshly created document to the modification
+    this.ensureLearningAgreement(documentId => {
+      this.applicationsApi.createModification(this.editApplicationId, {
+        description: description,
+        document_id: documentId,
+        mapping: mapping
+      }).subscribe({
+        next: () => this.finishSubmit('Modification proposed'),
+        error: err => this.failSubmit(err, 'Could not propose the modification')
+      });
     });
+  }
+
+  // makes sure the modification points at the current learning agreement: when the
+  // student picked a new file it replaces the old document (delete + upload +
+  // insert) and yields the new id, otherwise it yields the existing document id.
+  private ensureLearningAgreement(next: (documentId: number) => void) {
+    if (!this.selectedFile) {
+      next(this.existingDocument!.id);
+      return;
+    }
+
+    const uploadAndInsert = () => {
+      this.applicationsApi.uploadApplicationDocument(this.editApplicationId, this.selectedFile!).subscribe({
+        next: res => {
+          if (res.status !== 'success' || !res.file_path) {
+            this.failSubmit(null, 'Could not upload the new learning agreement');
+            return;
+          }
+          this.applicationsApi.insertApplicationDocument({
+            document_type: 'learning_agreement',
+            file_path: res.file_path,
+            application_id: this.editApplicationId
+          }).subscribe({
+            next: insertRes => {
+              if (!insertRes.id) {
+                this.failSubmit(null, 'Could not save the new learning agreement');
+                return;
+              }
+              // refresh local state so the new document is the current one (a retry
+              // after a later failure must not delete/re-upload it again)
+              this.existingDocument = {
+                ...(this.existingDocument as UploadedDocument),
+                id: insertRes.id,
+                file_path: res.file_path!,
+                status: 'pending',
+                notes: ''
+              };
+              this.selectedFile = null;
+              next(insertRes.id);
+            },
+            error: err => this.failSubmit(err, 'Could not save the new learning agreement')
+          });
+        },
+        error: err => this.failSubmit(err, 'Could not upload the new learning agreement')
+      });
+    };
+
+    // remove the previous learning agreement row first (if any), then upload the new one
+    if (this.existingDocument) {
+      this.applicationsApi.deleteApplicationDocument(this.existingDocument.id).subscribe({
+        next: uploadAndInsert,
+        error: uploadAndInsert
+      });
+    } else {
+      uploadAndInsert();
+    }
   }
 
   // ---- Exam results (status: exam_recognition) ----
@@ -699,4 +787,11 @@ interface ExamPair {
   // exam result filled in by the student during 'exam_recognition'
   grade?: number | null;
   date_passed?: string;
+}
+
+// immutable snapshot of a mapped_exams row as loaded from the backend
+interface LoadedMapping {
+  id: number;
+  sending_exam_id: number;
+  host_exam_id: number;
 }

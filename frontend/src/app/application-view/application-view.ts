@@ -64,7 +64,6 @@ export class ApplicationView {
   // student mobility lifecycle inputs
   mobilityStartDate: string = '';
   mobilityEndDate: string = '';
-  transcriptFile: File | null = null;
 
   cancel() {
     this.router.navigate(['/applications']);
@@ -403,59 +402,6 @@ export class ApplicationView {
   // ends the mobility: moves to 'exam_recognition' so the transcript can be uploaded
   endMobility() {
     this.setApplicationStatus('exam_recognition', 'Mobility ended');
-  }
-
-  onTranscriptSelected(event: Event) {
-    const input = event.target as HTMLInputElement;
-    if (input.files && input.files.length) {
-      this.transcriptFile = input.files[0];
-    }
-  }
-
-  // uploads the transcript of records during 'exam_recognition'
-  uploadTranscript() {
-    if (!this.transcriptFile) {
-      this.app.send_notification('Please select a transcript file', 'warning');
-      return;
-    }
-    this.applicationsApi.uploadApplicationDocument(this.applicationId, this.transcriptFile).subscribe({
-      next: res => {
-        if (res.status === 'success' && res.file_path) {
-          this.applicationsApi.insertApplicationDocument({
-            document_type: 'transcript',
-            file_path: res.file_path,
-            application_id: this.applicationId
-          }).subscribe({
-            next: () => {
-              this.transcriptFile = null;
-              this.app.send_notification('Transcript uploaded', 'success');
-              this.reloadTranscript();
-            },
-            error: err => this.app.send_notification(this.readError(err), 'error'),
-            complete: () => this.cdr.markForCheck()
-          });
-        } else {
-          this.app.send_notification('Could not upload the transcript', 'error');
-        }
-      },
-      error: err => this.app.send_notification(this.readError(err), 'error'),
-      complete: () => this.cdr.markForCheck()
-    });
-  }
-
-  // reloads the transcript document after a successful upload
-  private reloadTranscript() {
-    this.applicationsApi.listApplicationDocuments(this.applicationId).subscribe({
-      next: res => {
-        for (let doc of res) {
-          if (doc.document_type === 'transcript') {
-            this.transcript = doc;
-          }
-        }
-      },
-      error: err => console.error(err),
-      complete: () => this.cdr.markForCheck()
-    });
   }
 
   // ---- Referent: approve the recognition document during 'exam_recognition' ----

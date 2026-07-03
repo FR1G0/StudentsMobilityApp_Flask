@@ -45,11 +45,7 @@
   </div>
 
   <!-- Section: Workflow actions (role + status based) -->
-  @if (
-    (user.role === 'staff' && application.status === 'created') ||
-    (user.role === 'staff' && application.status === 'exam_recognition') ||
-    (user.role === 'referent' && application.status === 'exam_recognition')
-  ) {
+  @if (user.role === 'referent' && application.status === 'exam_recognition') {
     <div class="mb-6 pb-4 border-b border-border-subtle">
       <p class="flex items-center gap-2 text-[0.6rem] text-text-muted uppercase tracking-widest mb-3">
         <span class="mdi mdi-cog-outline text-sm"></span>
@@ -57,110 +53,17 @@
       </p>
       <div class="flex flex-wrap items-center gap-2">
 
-        <!-- staff: advance to pre-departure (a database trigger validates the conditions) -->
-        @if (user.role === 'staff' && application.status === 'created') {
-          <button
-            type="button"
-            (click)="proceedToPreDeparture()"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded text-[0.7rem] font-medium bg-[#101e26] border border-[#1a3d52] text-[#4da8d4] hover:bg-[#13242e] transition-all duration-150"
-          >
-            <span class="mdi mdi-airplane-check text-sm"></span>
-            Proceed to Pre-Departure
-          </button>
-        }
-
         <!-- referent: approve the recognition document while in exam_recognition -->
-        @if (user.role === 'referent' && application.status === 'exam_recognition') {
-          <button
-            type="button"
-            (click)="approveRecognition()"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded text-[0.7rem] font-medium bg-[#101e14] border border-[#1a4022] text-[#4db864] hover:bg-[#13261a] transition-all duration-150"
-          >
-            <span class="mdi mdi-file-check-outline text-sm"></span>
-            Approve Recognition
-          </button>
-        }
-
-        <!-- staff: permanently close the application after recognition -->
-        @if (user.role === 'staff' && application.status === 'exam_recognition') {
-          <button
-            type="button"
-            (click)="closeApplication()"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded text-[0.7rem] font-medium bg-[#101e14] border border-[#1a4022] text-[#4db864] hover:bg-[#13261a] transition-all duration-150"
-          >
-            <span class="mdi mdi-lock-check-outline text-sm"></span>
-            Close Application
-          </button>
-        }
-
-      </div>
-    </div>
-  }
-
-  <!-- Section: Student mobility actions (role + status based) -->
-  @if (
-    user.role === 'student' &&
-    (application.status === 'pre_departure_completed' ||
-     application.status === 'mobility_ongoing' ||
-     application.status === 'exam_recognition')
-  ) {
-    <div class="mb-6 pb-4 border-b border-border-subtle">
-      <p class="flex items-center gap-2 text-[0.6rem] text-text-muted uppercase tracking-widest mb-3">
-        <span class="mdi mdi-progress-check text-sm"></span>
-        Mobility
-      </p>
-
-      <!-- pre-departure: start the mobility -->
-      @if (application.status === 'pre_departure_completed') {
         <button
           type="button"
-          (click)="startMobility()"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded text-[0.7rem] font-medium bg-[#101826] border border-[#1a2e52] text-[#4d78d4] hover:bg-[#13203a] transition-all duration-150"
-        >
-          <span class="mdi mdi-airplane-takeoff text-sm"></span>
-          Start Mobility
-        </button>
-      }
-
-      <!-- ongoing: end the mobility -->
-      @if (application.status === 'mobility_ongoing') {
-        <button
-          type="button"
-          (click)="endMobility()"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded text-[0.7rem] font-medium bg-[#1a1026] border border-[#3d1a52] text-[#a04dd4] hover:bg-[#20143a] transition-all duration-150"
-        >
-          <span class="mdi mdi-flag-checkered text-sm"></span>
-          End Mobility
-        </button>
-      }
-
-      <!-- exam recognition: upload the transcript of records (until one exists) -->
-      @if (application.status === 'exam_recognition' && !transcript) {
-        @if (transcriptFile) {
-          <div class="flex items-center gap-3 px-4 py-3 bg-bg-raised border border-border-default rounded mb-3">
-            <span class="mdi mdi-file-pdf-box text-red-400 text-xl shrink-0"></span>
-            <span class="text-[0.8rem] text-text-primary truncate flex-1">{{ transcriptFile.name }}</span>
-          </div>
-        } @else {
-          <label
-            for="tor-upload"
-            class="flex flex-col items-center justify-center gap-2 w-full py-6 border border-dashed border-border-default hover:border-border-strong bg-bg-base hover:bg-bg-raised rounded cursor-pointer transition-all duration-150 group mb-3"
-          >
-            <span class="mdi mdi-upload text-2xl text-text-muted group-hover:text-text-secondary transition-colors duration-150"></span>
-            <p class="text-[0.8rem] text-text-secondary">Upload your transcript of records (<span class="text-blue-400/80">click to select</span>)</p>
-            <p class="text-[0.65rem] text-text-muted">Only PDF · Max 10 MB</p>
-          </label>
-        }
-        <input id="tor-upload" type="file" accept=".pdf" class="sr-only" (change)="onTranscriptSelected($event)" />
-        <button
-          type="button"
-          (click)="uploadTranscript()"
+          (click)="approveRecognition()"
           class="flex items-center gap-1.5 px-3 py-1.5 rounded text-[0.7rem] font-medium bg-[#101e14] border border-[#1a4022] text-[#4db864] hover:bg-[#13261a] transition-all duration-150"
         >
-          <span class="mdi mdi-upload text-sm"></span>
-          Upload Transcript
+          <span class="mdi mdi-file-check-outline text-sm"></span>
+          Approve Recognition
         </button>
-      }
+
+      </div>
     </div>
   }
 
@@ -297,6 +200,23 @@
                 {{ mapping.status }}
               </span>
             </div>
+
+            <!-- exam result (read-only): during recognition/after closing every role
+                 can see the recorded grade and date, but nobody edits it here -->
+            @if (application.status === 'exam_recognition' || application.status === 'closed') {
+              <div class="mt-3 grid grid-cols-2 gap-2">
+                <div class="flex flex-col gap-1">
+                  <label class="text-[0.7rem] text-text-secondary">Grade</label>
+                  <input [value]="mapping.grade === -1 ? '—' : mapping.grade" type="text" readonly
+                    class="bg-bg-base border border-border-subtle rounded px-3 py-2 text-[0.8rem] text-text-muted cursor-default" />
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="text-[0.7rem] text-text-secondary">Date Passed</label>
+                  <input [value]="mapping.date_passed || '—'" type="text" readonly
+                    class="bg-bg-base border border-border-subtle rounded px-3 py-2 text-[0.8rem] text-text-muted cursor-default" />
+                </div>
+              </div>
+            }
 
             <!-- role based: referent decides, student/staff only read the outcome -->
             @if (user.role === 'referent') {
@@ -569,6 +489,62 @@
         }
       }
     </fieldset>
+  }
+
+  <!-- student: end the mobility -->
+  @if (user.role === 'student' && application.status === 'mobility_ongoing') {
+    <div class="flex items-center justify-end pt-4 border-t border-border-subtle">
+      <button
+        type="button"
+        (click)="endMobility()"
+        class="flex items-center gap-1.5 px-4 py-2 rounded text-[0.7rem] font-medium bg-[#1a1026] border border-[#3d1a52] text-[#a04dd4] hover:bg-[#20143a] transition-all duration-150"
+      >
+        <span class="mdi mdi-flag-checkered text-sm"></span>
+        End Mobility
+      </button>
+    </div>
+  }
+
+  <!-- student: start the mobility -->
+  @if (user.role === 'student' && application.status === 'pre_departure_completed') {
+    <div class="flex items-center justify-end pt-4 border-t border-border-subtle">
+      <button
+        type="button"
+        (click)="startMobility()"
+        class="flex items-center gap-1.5 px-4 py-2 rounded text-[0.7rem] font-medium bg-[#101826] border border-[#1a2e52] text-[#4d78d4] hover:bg-[#13203a] transition-all duration-150"
+      >
+        <span class="mdi mdi-airplane-takeoff text-sm"></span>
+        Start Mobility
+      </button>
+    </div>
+  }
+
+  <!-- staff: advance to pre-departure (a database trigger validates the conditions) -->
+  @if (user.role === 'staff' && application.status === 'created') {
+    <div class="flex items-center justify-end pt-4 border-t border-border-subtle">
+      <button
+        type="button"
+        (click)="proceedToPreDeparture()"
+        class="flex items-center gap-1.5 px-4 py-2 rounded text-[0.7rem] font-medium bg-[#101e26] border border-[#1a3d52] text-[#4da8d4] hover:bg-[#13242e] transition-all duration-150"
+      >
+        <span class="mdi mdi-airplane-check text-sm"></span>
+        Proceed to Pre-Departure
+      </button>
+    </div>
+  }
+
+  <!-- staff: permanently close the application after recognition -->
+  @if (user.role === 'staff' && application.status === 'exam_recognition') {
+    <div class="flex items-center justify-end pt-4 border-t border-border-subtle">
+      <button
+        type="button"
+        (click)="closeApplication()"
+        class="flex items-center gap-1.5 px-4 py-2 rounded text-[0.7rem] font-medium bg-[#101e14] border border-[#1a4022] text-[#4db864] hover:bg-[#13261a] transition-all duration-150"
+      >
+        <span class="mdi mdi-lock-check-outline text-sm"></span>
+        Close Application
+      </button>
+    </div>
   }
 
 </div>
