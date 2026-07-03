@@ -106,7 +106,11 @@ def post_update_application(id):
 
         # a student may only edit their own application
         if not can_view_application(application, g.current_user, g.current_user_role):
-            return jsonify({"status": "failed", "error": "cannot modify this application"}), 403
+            return jsonify({"status": "failed", "error": "access restricted, cannot modify this application"}), 403
+
+        # changes to application may only be done if application status is adequate
+        if application.status not in ('learning_agreement_pending','created','mobility_ongoing'):
+            return jsonify({"status": "failed", "error": f"cannot modify this application while it's in {application.status} status"}), 403
 
         # only these fields may be changed here; reject anything else
         allowed_fields = {
@@ -122,6 +126,7 @@ def post_update_application(id):
         unknown_fields = set(data.keys()) - allowed_fields
         if unknown_fields:
             return jsonify({"status": "failed", "error": "unknown fields: " + ", ".join(sorted(unknown_fields))}), 400
+
 
         integer_fields = {"year", "referent_id", "sending_institution", "host_institution"}
         date_fields = {"date_arrived", "date_departure"}
@@ -461,9 +466,7 @@ def delete_application_document(id):
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
         if not can_view_application(application, g.current_user, g.current_user_role):
-            return jsonify(
-                {"status": "failed", "error": "cannot delete this document"}
-            ), 403
+            return jsonify({"status": "failed", "error": "cannot delete this document"}), 403
 
         file_path = doc.file_path
         application_id = doc.application_id
