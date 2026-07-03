@@ -3,6 +3,7 @@ from datetime import datetime, date, timezone
 from routes.api import extract_db_error
 
 from flask import Blueprint, jsonify, request, g, current_app, send_file
+from sqlalchemy import text
 
 from auth import (
     ROLE_OVERSEAS,
@@ -12,7 +13,7 @@ from auth import (
     custom_jwt_required,
     require_roles,
 )
-from models import db, Application, User, Institution, UploadedDocument, MappedExam
+from models import db, Institution, User, Application, UploadedDocument, MappedExam
 
 applications_blueprint = Blueprint("applications", __name__)
 
@@ -254,12 +255,26 @@ def list_application_info():
     else:
         return jsonify({"error": "role not authorized"}), 403
 
+    # batch-fetch related rows to avoid one query per applications
+    #                                               THIS IS NOT AN OR, IT'S A SET UNION
+    institution_ids = {a.sending_institution for a in applications} | {
+        a.host_institution for a in applications
+    }
+    user_ids = {a.user_id for a in applications} | {
+        a.referent_id for a in applications if a.referent_id is not None
+    }
+
+    institutions = {
+        i.id: i for i in Institution.query.filter(Institution.id.in_(institution_ids))
+    }
+    users = {u.id: u for u in User.query.filter(User.id.in_(user_ids))}
+
     result = []
     for application in applications:
-        sending = Institution.query.get(application.sending_institution)
-        host = Institution.query.get(application.host_institution)
-        owner = User.query.get(application.user_id)
-        referent = User.query.get(application.referent_id)
+        sending = institutions.get(application.sending_institution)
+        host = institutions.get(application.host_institution)
+        owner = users.get(application.user_id)
+        referent = users.get(application.referent_id)
 
         item = application.to_dict()
         item["sending"] = {"id": sending.id, "name": sending.name} if sending else None

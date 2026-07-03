@@ -115,8 +115,20 @@ FOR EACH ROW
 -- student puts application into ongoing or exam_recognition
 CREATE OR REPLACE FUNCTION check_application_status_workflow() RETURNS TRIGGER AS $$
 BEGIN
+	-- the status learning_agreement_pending must only be updated when status is created or la_pending
+	if NEW.status='learning_agreement_pending' AND OLD.status NOT IN ('learning_agreement_pending', 'created') THEN
+		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
+	END IF;
+
+
+	-- the status must go to 'created' only if the previous status was la_pending or created
 	IF NEW.status='created' AND OLD.status NOT IN ('learning_agreement_pending', 'created') THEN
 		RAISE EXCEPTION 'cannot move to created without an approved learning agreement';
+	END IF;
+	
+	-- the status 'created' must be blocked from going anywhere else
+	IF OLD.status='closed' AND NEW.status<>'closed' THEN
+		RAISE EXCEPTION 'status is closed, no actions are possible';
 	END IF;
 
 	-- learning_agreement_pending -> pre_departure_completed
@@ -139,17 +151,60 @@ BEGIN
 			) THEN
 			RAISE EXCEPTION 'cannot move to pre_departure_completed: all mapped exams must be approved';
 		END IF;
+
+		-- check if there is another application in the same time period
+		IF EXISTS (SELECT 1
+			FROM applications
+			WHERE user_id = NEW.user_id
+			AND id <> NEW.id
+			AND status NOT IN ('learning_agreement_pending','created')
+			AND (date_arrived, date_departure) OVERLAPS (NEW.date_arrived, NEW.date_departure)
+			) THEN
+			RAISE EXCEPTION 'this application overlaps with another applicaiton in the same time period';
+		END IF;
 	ELSEIF NEW.status='pre_departure_completed' AND OLD.status<>'created' THEN
 		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 
 	-- pre_departure_completed -> mobility_ongoing
-	IF NEW.status='mobility_ongoing' AND OLD.status<>'pre_departure_completed' THEN
+	IF NEW.status='mobility_ongoing' AND OLD.status='pre_departure_completed' THEN
+		-- when going to mobility_ongoing user can only update the date_arrived field
+		IF NEW.date_departure IS DISTINCT FROM OLD.date_departure THEN
+			RAISE EXCEPTION 'you can only update the arrival date, not the departure date';
+		END IF;
+
+		-- user can update the new date_arrived check if new updated date is overlapping
+		IF EXISTS (SELECT 1
+			FROM applications
+			WHERE user_id = NEW.user_id
+			AND id <> NEW.id
+			AND status NOT IN ('learning_agreement_pending','created')
+			AND (date_arrived, date_departure) OVERLAPS (NEW.date_arrived, NEW.date_departure)
+			) THEN
+			RAISE EXCEPTION 'this application overlaps with another applicaiton in the same time period';
+		END IF;
+	ELSEIF NEW.status='mobility_ongoing' AND OLD.status<>'pre_departure_completed' THEN
 		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 	
 	-- mobility_ongoing -> exam_recognition
 	IF NEW.status='exam_recognition' AND OLD.status='mobility_ongoing' THEN
+		-- when going to exam_recognition user can only update the date_departure field
+		IF NEW.date_arrived IS DISTINCT FROM OLD.date_arrived THEN
+			RAISE EXCEPTION 'you can only update the departure date, not the arrival date';
+		END IF;
+
+		-- user can update the new date_departure check if new updated date is overlapping
+		IF EXISTS (SELECT 1
+			FROM applications
+			WHERE user_id = NEW.user_id
+			AND id <> NEW.id
+			AND status NOT IN ('learning_agreement_pending','created')
+			AND (date_arrived, date_departure) OVERLAPS (NEW.date_arrived, NEW.date_departure)
+			) THEN
+			RAISE EXCEPTION 'this application overlaps with another applicaiton in the same time period';
+		END IF;
+
 		-- update the mapped exams to 'pending' because a grade is expected
 		UPDATE mapped_exams 
 		SET status='pending' 
