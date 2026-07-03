@@ -13,7 +13,7 @@ from auth import (
     custom_jwt_required,
     require_roles,
 )
-from models import db, Application, UploadedDocument, MappedExam
+from models import db, Institution, User, Application, UploadedDocument, MappedExam
 
 applications_blueprint = Blueprint("applications", __name__)
 
@@ -242,97 +242,65 @@ def delete_application(id):
 @applications_blueprint.route("/applications/info/list", methods=["GET"])
 @custom_jwt_required()
 def list_application_info():
-    # Multitenancy: filter results based on user role to ensure data isolation.
-    # Students see own data; Staff/Referents see data scoped to their institution.
     user = g.current_user
     role = g.current_user_role
     if role == ROLE_STUDENT:
-        where_clause = "a.user_id = :scope"
-        scope = user.id
+        applications = Application.query.filter_by(user_id=user.id).all()
     elif role == ROLE_REFERENT:
-        where_clause = "a.referent_id = :scope"
-        scope = user.id
+        applications = Application.query.filter_by(referent_id=user.id).all()
     elif role == ROLE_OVERSEAS:
-        where_clause = "a.sending_institution = :scope"
-        scope = user.id_institution
+        applications = Application.query.filter_by(
+            sending_institution=user.id_institution
+        ).all()
     else:
         return jsonify({"error": "role not authorized"}), 403
 
-    try:
-        queryresult = db.session.execute(
-            text(
-                """
-                SELECT a.id, a.year, a.semester, a.status, a.date_submitted,
-                       a.date_arrived, a.date_departure, a.notes, a.referent_id,
-                       a.sending_institution, a.host_institution, a.user_id,
-                       s.id AS sending_id, s.name AS sending_name,
-                       h.id AS host_id, h.name AS host_name,
-                       u.id AS owner_id, u.firstname AS owner_firstname,
-                       u.lastname AS owner_lastname, u.email AS owner_email,
-                       r.id AS referent_user_id, r.firstname AS referent_firstname,
-                       r.lastname AS referent_lastname, r.email AS referent_email
-                FROM applications a
-                LEFT JOIN institutions s ON s.id = a.sending_institution
-                LEFT JOIN institutions h ON h.id = a.host_institution
-                LEFT JOIN users u ON u.id = a.user_id
-                LEFT JOIN users r ON r.id = a.referent_id
-                WHERE """ + where_clause + """
-                ORDER BY a.id
-                """
-            ),
-            {"scope": scope},
-        ).mappings().all()
+    # batch-fetch related rows to avoid one query per applications
+    #                                               THIS IS NOT AN OR, IT'S A SET UNION
+    institution_ids = {a.sending_institution for a in applications} | {
+        a.host_institution for a in applications
+    }
+    user_ids = {a.user_id for a in applications} | {
+        a.referent_id for a in applications if a.referent_id is not None
+    }
 
-        result = []
-        for row in queryresult:
-            result.append({
-                "id": row["id"],
-                "year": row["year"],
-                "semester": row["semester"],
-                "status": row["status"],
-                "date_submitted": row["date_submitted"].isoformat() if row["date_submitted"] else None,
-                "date_arrived": row["date_arrived"].isoformat() if row["date_arrived"] else None,
-                "date_departure": row["date_departure"].isoformat() if row["date_departure"] else None,
-                "notes": row["notes"],
-                "referent_id": row["referent_id"],
-                "sending_institution": row["sending_institution"],
-                "host_institution": row["host_institution"],
-                "user_id": row["user_id"],
-                "sending": (
-                    {"id": row["sending_id"], "name": row["sending_name"]}
-                    if row["sending_id"] is not None
-                    else None
-                ),
-                "host": (
-                    {"id": row["host_id"], "name": row["host_name"]}
-                    if row["host_id"] is not None
-                    else None
-                ),
-                "user": (
-                    {
-                        "id": row["owner_id"],
-                        "firstname": row["owner_firstname"],
-                        "lastname": row["owner_lastname"],
-                        "email": row["owner_email"],
-                    }
-                    if row["owner_id"] is not None
-                    else None
-                ),
-                "referent": (
-                    {
-                        "id": row["referent_user_id"],
-                        "firstname": row["referent_firstname"],
-                        "lastname": row["referent_lastname"],
-                        "email": row["referent_email"],
-                    }
-                    if row["referent_user_id"] is not None
-                    else None
-                ),
-            })
-        return jsonify(result), 200
-    except Exception as e:
-        msg = extract_db_error(e)
-        return jsonify({"error": msg}), 500
+    institutions = {
+        i.id: i for i in Institution.query.filter(Institution.id.in_(institution_ids))
+    }
+    users = {u.id: u for u in User.query.filter(User.id.in_(user_ids))}
+
+    result = []
+    for application in applications:
+        sending = institutions.get(application.sending_institution)
+        host = institutions.get(application.host_institution)
+        owner = users.get(application.user_id)
+        referent = users.get(application.referent_id)
+
+        item = application.to_dict()
+        item["sending"] = {"id": sending.id, "name": sending.name} if sending else None
+        item["host"] = {"id": host.id, "name": host.name} if host else None
+        item["user"] = (
+            {
+                "id": owner.id,
+                "firstname": owner.firstname,
+                "lastname": owner.lastname,
+                "email": owner.email,
+            }
+            if owner
+            else None
+        )
+        item["referent"] = (
+            {
+                "id": referent.id,
+                "firstname": referent.firstname,
+                "lastname": referent.lastname,
+                "email": referent.email,
+            }
+            if referent
+            else None
+        )
+        result.append(item)
+    return jsonify(result), 200
 
 
 # OK: [GET] /application/info/semester
