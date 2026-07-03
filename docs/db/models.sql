@@ -126,7 +126,6 @@ CREATE TABLE mapped_exams (
 	decision_date TIMESTAMPTZ,
 	notes TEXT DEFAULT '',
 	-- pervious_id to restore old mapping if *this* mapping gets rejected 
-	previous_id INT NOT NULL default -1,
 
 	FOREIGN KEY (application_id) REFERENCES applications(id)
 		ON DELETE CASCADE

@@ -97,6 +97,17 @@ BEGIN
         RAISE EXCEPTION 'application student must have role=student';
 	END IF;
 
+	IF NEW.status IN ('mobility_ongoing','pre_departure_completed','exam_recognition','closed') THEN
+		-- restrict instutution changes
+		IF (NEW.sending_institution <> OLD.sending_institution OR NEW.host_institution <> OLD.host_institution) THEN
+			RAISE EXCEPTION 'cannot change institutions while application is in % status', NEW.status;
+		END IF;
+		-- restrict refernt changes
+		IF (NEW.referent_id IS DISTINCT FROM OLD.referent_id) THEN
+			RAISE EXCEPTION 'cannot change referent while application is in % status', NEW.status;
+		END IF;
+	END IF;
+
 	-- check if student cannot create a application that is already past all the LA & exams validation process
 	IF TG_OP='INSERT' AND NEW.status NOT IN('created','learning_agreement_pending') THEN
 		RAISE EXCEPTION 'application status cannot start with %', NEW.status;
@@ -342,6 +353,37 @@ FOR EACH ROW
 	WHEN (NEW.sending_exam_id<>OLD.sending_exam_id
 	OR NEW.host_exam_id<>OLD.host_exam_id)
 	EXECUTE FUNCTION check_update_mapping();
+
+CREATE OR REPLACE FUNCTION check_exam_mapping_insert() RETURNS TRIGGER AS $$
+DECLARE
+	app_status VARCHAR(32);
+BEGIN
+	IF TG_OP='INSERT' THEN
+		SELECT status INTO app_status
+		FROM applications
+		WHERE id=NEW.application_id;
+	ELSE
+		SELECT status INTO app_status
+		FROM applications
+		WHERE id=OLD.application_id;
+	END IF;
+	
+	IF app_status NOT IN ('learning_agreement_pending','created','mobility_ongoing') THEN
+		RAISE EXCEPTION 'cannot add or remove exams when associated application is in %', app_status;
+	END IF;
+
+	IF TG_OP='INSERT' THEN
+		RETURN NEW;
+	ELSE
+		RETURN OLD;
+	END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER exam_mapping_insert_check
+BEFORE INSERT OR DELETE ON mapped_exams
+FOR EACH ROW
+	EXECUTE FUNCTION check_exam_mapping_insert();
 
 -- when the status of an uploaded_document changes to 'approved' or 'rejected', automatically stamps decision_date with the current timestamp.
 CREATE OR REPLACE FUNCTION check_document_status_update() RETURNS TRIGGER AS $$
