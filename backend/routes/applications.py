@@ -593,7 +593,6 @@ def list_application_exam_mappings(application_id):
                     if mapping.decision_date
                     else None,
                     "notes": mapping.notes,
-                    "previous_id": mapping.previous_id,
                     "host_exam_id": mapping.host_exam_id,
                     "sending_exam_id": mapping.sending_exam_id,
                 }
