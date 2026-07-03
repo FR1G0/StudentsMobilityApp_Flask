@@ -25,7 +25,7 @@
       [(ngModel)]="inputSearch"
       id="search"
       type="text"
-      placeholder="ID, year, semester, status..."
+      placeholder="Search by sending or host institution..."
       class="bg-transparent text-[0.7rem] text-text-primary placeholder:text-text-disabled outline-none w-full"
     />
     @if (inputSearch) {
@@ -45,11 +45,12 @@
   <!-- Header -->
   <div class="w-full grid grid-cols-12 gap-2 px-4 py-2.5 rounded-lg border border-border-subtle bg-bg-raised">
     <p class="col-span-1 text-[0.6rem] text-text-muted uppercase tracking-widest font-medium">ID</p>
-    <p class="col-span-2 text-[0.6rem] text-text-muted uppercase tracking-widest font-medium">Academic Year</p>
-    <p class="col-span-2 text-[0.6rem] text-text-muted uppercase tracking-widest font-medium">Email</p>
+    <p class="col-span-1 text-[0.6rem] text-text-muted uppercase tracking-widest font-medium">Year</p>
+    <p class="col-span-2 text-[0.6rem] text-text-muted uppercase tracking-widest font-medium">Student Email</p>
+    <p class="col-span-2 text-[0.6rem] text-text-muted uppercase tracking-widest font-medium">Referent Email</p>
     <p class="col-span-2 text-[0.6rem] text-text-muted uppercase tracking-widest font-medium">Sending</p>
     <p class="col-span-2 text-[0.6rem] text-text-muted uppercase tracking-widest font-medium">Host</p>
-    <p class="col-span-2 text-[0.6rem] text-text-muted uppercase tracking-widest font-medium">Status</p>
+    <p class="col-span-1 text-[0.6rem] text-text-muted uppercase tracking-widest font-medium">Status</p>
     <p class="col-span-1 text-[0.6rem] text-text-muted uppercase tracking-widest font-medium text-right">Action</p>
   </div>
 
@@ -70,12 +71,13 @@
           [class.border-b]="last"
           [class.rounded-b-lg]="last" >
           <p class="col-span-1 text-[0.7rem] text-text-muted font-mono tabular-nums">#{{ application.id }}</p>
-          <p class="col-span-2 text-[0.7rem] text-text-primary truncate">{{ formatYear(application.year) }}</p>
-          <p class="col-span-2 text-[0.7rem] text-text-secondary truncate">{{ applicantEmail(application) }}</p>
-          <p class="col-span-2 text-[0.7rem] text-text-secondary truncate">{{ institutionName(application.sending_institution) }}</p>
-          <p class="col-span-2 text-[0.7rem] text-text-secondary truncate">{{ institutionName(application.host_institution) }}</p>
+          <p class="col-span-1 text-[0.7rem] text-text-primary truncate">{{ formatYear(application.year) }}</p>
+          <p class="col-span-2 text-[0.7rem] text-text-secondary truncate">{{ application.user?.email }}</p>
+          <p class="col-span-2 text-[0.7rem] text-text-secondary truncate">{{ application.referent?.email || '—' }}</p>
+          <p class="col-span-2 text-[0.7rem] text-text-secondary truncate">{{ application.sending?.name }}</p>
+          <p class="col-span-2 text-[0.7rem] text-text-secondary truncate">{{ application.host?.name }}</p>
 
-          <div class="col-span-2">
+          <div class="col-span-1">
             <span
               class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[0.6rem] font-medium uppercase tracking-wider border"
               [ngClass]="{

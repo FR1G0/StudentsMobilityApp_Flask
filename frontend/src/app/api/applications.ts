@@ -31,6 +31,13 @@ export class Applications {
     return this.http.get<Application[]>(endpoint, { headers: this.authHeaders() });
   }
 
+  // returns the list of applications visible to the current user (filtered by role),
+  // each joined with its sending/host institutions, owner student and referent
+  getApplicationsInfo(): Observable<ApplicationInfo[]> {
+    const endpoint = this.base_url + '/api/applications/info/list';
+    return this.http.get<ApplicationInfo[]>(endpoint, { headers: this.authHeaders() });
+  }
+
   // returns the status of the insertion plus the id of the new application (student only)
   insertApplication(body: ApplicationInsertBody): Observable<StatusResponse> {
     const endpoint = this.base_url + '/api/application/insert';
@@ -165,6 +172,28 @@ export interface Application {
   sending_institution: number;
   host_institution: number;
   user_id: number;
+}
+
+// nested institution info attached to a joined application
+export interface ApplicationInstitutionInfo {
+  id: number;
+  name: string;
+}
+
+// nested user info (owner student / referent) attached to a joined application
+export interface ApplicationUserInfo {
+  id: number;
+  firstname: string;
+  lastname: string;
+  email: string;
+}
+
+// an application joined with its sending/host institutions, owner and referent
+export interface ApplicationInfo extends Application {
+  sending: ApplicationInstitutionInfo | null;
+  host: ApplicationInstitutionInfo | null;
+  user: ApplicationUserInfo | null;
+  referent: ApplicationUserInfo | null;
 }
 
 export interface ApplicationInsertBody {

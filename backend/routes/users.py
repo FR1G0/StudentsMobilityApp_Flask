@@ -6,6 +6,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from models import User, db
 from auth import ROLE_OVERSEAS, custom_jwt_required, require_roles, _get_jwt_secret
+from routes.api import extract_db_error
 
 users_blueprint = Blueprint("users", __name__)
 
@@ -61,7 +62,8 @@ def all_users():
             result.append(user.to_dict())
         return jsonify(result), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"error": msg}), 500
 
 
 # OK: [GET] /user/:id
@@ -86,7 +88,8 @@ def get_user(id):
         }
         return jsonify(result), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"error": msg}), 500
 
 
 # OK: [POST] /user/insert
@@ -121,7 +124,8 @@ def insert_user():
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 
 # OK: [POST] /user/update
@@ -159,7 +163,8 @@ def update_user():
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 
 # OK: [POST] /user/delete/:id
@@ -173,6 +178,9 @@ def delete_user(id):
         if not user:
             return jsonify({"status": "failed", "error": "user not found"}), 404
 
+        if user.role == 'staff':
+            return jsonify({"status": "failed", "error": "you can't delete staff members, higher authority required"}), 403
+
         if not user_in_institution(g.current_user, user.id_institution):
             return jsonify({"status": "failed", "error": "restricted access to this user"}), 403
 
@@ -181,7 +189,8 @@ def delete_user(id):
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 #   -------  USER INFO SECTION  -------
 

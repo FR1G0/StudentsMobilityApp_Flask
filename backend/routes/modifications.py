@@ -15,6 +15,7 @@ from models import (
     LAModificationExam,
     UploadedDocument,
 )
+from routes.api import extract_db_error
 
 modifications_blueprint = Blueprint("modifications", __name__)
 
@@ -95,7 +96,8 @@ def create_modification(application_id):
         return jsonify({"status": "success", "id": mod.id}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"error": str(e)}), 400
+        msg = extract_db_error(e)
+        return jsonify({"error": msg}), 400
 
 
 # NOTE: [GET] /application/:application_id/modifications
@@ -174,4 +176,5 @@ def decide_modification(id):
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"error": str(e)}), 400
+        msg = extract_db_error(e)
+        return jsonify({"error": msg}), 400

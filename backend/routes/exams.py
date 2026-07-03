@@ -13,6 +13,7 @@ from auth import (
 )
 from models import db, Exam, MappedExam, Application, UploadedDocument
 from routes.users import user_in_institution
+from routes.api import extract_db_error
 
 exams_blueprint = Blueprint("exams", __name__)
 
@@ -29,7 +30,8 @@ def list_exams_by_institution(id_inst):
             result.append(exam.to_dict())
         return jsonify(result), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"error": msg}), 500
 
 
 # OK: [GET] /exam/:id
@@ -43,7 +45,8 @@ def get_exam(id):
             return jsonify({"error": "exam not found"}), 404
         return jsonify(exam.to_dict()), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"error": msg}), 500
 
 
 # OK: [POST] /exam/insert
@@ -72,7 +75,8 @@ def insert_exam():
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 
 # OK: [POST] /exam/delete/:id
@@ -95,7 +99,8 @@ def delete_exam(id):
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 #   -------  EXAM MAPPING SECTION  -------
 
@@ -131,7 +136,8 @@ def insert_mapped_exam(application_id):
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 
 # OK: [POST] /exam/mapping/delete/:id
@@ -157,7 +163,8 @@ def delete_mapped_exam(id):
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 
 # NOTE: [POST] /exam/mapping/update/:id
@@ -192,7 +199,8 @@ def update_mapped_exam_status(id):
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 
 # OK: [POST] /exam/mapping/passed/:id
@@ -240,7 +248,8 @@ def set_mapped_exam_passed(id):
         return jsonify({"status": "success"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        msg = extract_db_error(e)
+        return jsonify({"status": "failed", "error": msg}), 500
 
 
 # OK: [GET] /exam/mapped/info/status

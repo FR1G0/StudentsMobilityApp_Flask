@@ -6,6 +6,7 @@ import { Component,
   PLATFORM_ID
 } from '@angular/core';
 import { Router, RouterOutlet, RouterLink } from '@angular/router';
+import { Institutions, Institution, PartnerLink } from './api/institutions';
 import { NgClass, isPlatformBrowser } from '@angular/common';
 
 import { Auth } from './auth'
@@ -22,8 +23,6 @@ export interface NotificationItem {
 }
 
 // Shared notification service.
-// Any component can inject this and call send_notification(message, level)
-// to make a notification appear on the top-right corner for a few seconds.
 @Injectable({ providedIn: 'root' })
 export class Notifications {
   // list of notifications currently visible, rendered by app.html
@@ -69,6 +68,7 @@ export class App {
     private router : Router,
     private cdr : ChangeDetectorRef,
     public notifications : Notifications,
+    private institutions : Institutions,
     @Inject(PLATFORM_ID) private platformId: Object
   ){}
 
@@ -100,11 +100,24 @@ export class App {
       this.user_data.id_institution = obj_user_cookie.id_institution;
       this.user_data.email = obj_user_cookie.email;
       this.user_data.role = obj_user_cookie.role;
+
+      // institution information
+      this.institutions.getInstitution(this.user_data.id_institution).subscribe({
+        next: res => {
+          this.user_data.institution_data = res;
+          this.cdr.markForCheck();
+        },
+        error: err => {
+          console.error(err);
+        }
+      });
     }
   }
 
   public isLoggedIn : boolean = false;
-  user_data : UserData = {} as UserData;
+  user_data : UserData = {
+    institution_data: {} as Institution
+  } as UserData;
 
   attempt_logout() {
     if(!isPlatformBrowser(this.platformId)) { return; }
@@ -119,21 +132,46 @@ export class App {
     {
       text: 'Home',
       href: '/',
+      allowed_roles: ['student','staff','referent'],
       loginRequired : false,
       icon: 'mdi mdi-home-outline'
     },
     {
       text: 'Create New Application',
       href: '/form',
+      allowed_roles: ['student'],
       loginRequired : true,
       icon: 'mdi mdi-plus-circle-outline'
     },
     {
       text: 'Applications List',
       href: '/applications',
+      allowed_roles: ['student','staff','referent'],
       loginRequired : true,
       icon: 'mdi mdi-card-multiple-outline'
+    },
+    {
+      text: 'Manage Users',
+      href: '/manage-users',
+      allowed_roles: ['staff'],
+      loginRequired : true,
+      icon: 'mdi mdi-account-cog-outline'
+    },
+    {
+      text: 'Manage Exams',
+      href: '/manage-exams',
+      allowed_roles: ['staff'],
+      loginRequired : true,
+      icon: 'mdi mdi-file-cog-outline'
+    },
+    {
+      text: 'Manage Partners',
+      href: '/manage-partners',
+      allowed_roles: ['staff'],
+      loginRequired : true,
+      icon: 'mdi mdi-office-building-cog-outline'
     }
+
   ];
 
 }
@@ -141,6 +179,7 @@ export class App {
 interface link {
   text: string;
   href: string;
+  allowed_roles: string[];
   loginRequired : boolean;
   icon: string;
 }
@@ -152,4 +191,5 @@ export interface UserData {
   role: string;
   email: string;
   id_institution : number;
+  institution_data: Institution;
 }

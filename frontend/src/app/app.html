@@ -39,7 +39,7 @@
         </div>
         <ul class="flex flex-col gap-2 px-4">
           @for(link of links; track link.href) {
-            @if(!link.loginRequired || isLoggedIn) {
+            @if((!link.loginRequired || isLoggedIn) && link.allowed_roles.includes(user_data.role)) {
               <li>
                 <a [routerLink]="link.href" class="flex items-center rounded-sm px-2 text-sm text-text-secondary">
                   <span class="text-lg {{link.icon}} pe-2"></span>
@@ -53,8 +53,9 @@
           @if(isLoggedIn) {
             <img src="/pfp.webp" class="w-8 h-8 bg-white rounded-full" />
             <div class="flex flex-col">
-              <span class="text-sm font-medium">{{`${user_data.firstname} ${user_data.lastname}`}}</span>
-              <span class="text-xs text-text-secondary">{{user_data.role}}</span>
+              <span class="text-md font-bold">{{`${user_data.firstname} ${user_data.lastname}`}}</span>
+              <span class="ms-1 text-sm text-text-secondary">{{user_data.role}}</span>
+              <span class="ms-1 text-xs text-text-muted">{{user_data.institution_data.name}}</span>
             </div>
             <button (click)="attempt_logout()" class="text-xs ml-auto text-text-secondary hover:text-text-primary w-min p-1 rounded-sm border border-text-disabled">logout</button>
           } @else {
