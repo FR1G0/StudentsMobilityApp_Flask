@@ -52,10 +52,10 @@ def insert_institution():
         msg = extract_db_error(e)
         return jsonify({"status": "failed", "error": msg}), 500
 
-# OK: [POST] /institution/info/:id
-# returns information associated to the application
+# OK: [GET] /institution/info/:id
+# returns information associated to the institution
 @institutions_blueprint.route("/institution/info/<int:id>", methods=["GET"])
-def get_institition_information(id):
+def get_institution_information(id):
     try:
         inst = Institution.query.get(id)
         if not inst:

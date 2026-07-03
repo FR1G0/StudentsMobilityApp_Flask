@@ -12,7 +12,7 @@ def _rows_to_dicts(result):
 
 # checks the exception and returns the message acordingly
 def extract_db_error(e):
-    orig = getattr(e, "orig", None)  # the underlying psycopg2 error, if any
+    orig = getattr(e, "orig", None)
 
     if orig is None or not getattr(orig, "diag", None):
         return str(e)
@@ -127,30 +127,6 @@ def summary():
             "top_institutions": top_institutions,
         }
     ), 200
-
-
-@api_blueprint.route("/institutions", methods=["GET"])
-@custom_jwt_required()
-def institutions():
-    institutions = _rows_to_dicts(
-        db.session.execute(
-            text(
-                """
-                SELECT
-                    i.id,
-                    i.name,
-                    i.country,
-                    i.city,
-                    COUNT(pi.id) AS partner_count
-                FROM public.institutions i
-                LEFT JOIN public.partner_institution pi ON pi.id_institution = i.id
-                GROUP BY i.id, i.name, i.country, i.city
-                ORDER BY i.name ASC
-                """
-            )
-        )
-    )
-    return jsonify(institutions), 200
 
 
 @api_blueprint.route("/exams", methods=["GET"])

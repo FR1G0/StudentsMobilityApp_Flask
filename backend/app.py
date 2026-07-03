@@ -31,7 +31,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False;
 db.init_app(app)
 migrate = Migrate(app, db)
 
-# register external ruotes
+# register external routes
 app.register_blueprint(users_blueprint, url_prefix="/api")
 app.register_blueprint(applications_blueprint, url_prefix="/api")
 app.register_blueprint(exams_blueprint, url_prefix="/api")

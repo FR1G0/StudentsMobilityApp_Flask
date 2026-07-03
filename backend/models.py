@@ -2,14 +2,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import ForeignKeyConstraint
 db = SQLAlchemy()
 
-# NOTE: : each model has predefined functions
-# User.query.all()
-# User.query.get(id)
-# User.query.filter_by(name='Joe').first()
-# User.query.filter(User.age > 18).all()
-
-
-#  user model
+# institution model
 class Institution(db.Model):
     __tablename__ = 'institutions'
 
