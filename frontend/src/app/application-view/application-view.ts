@@ -137,20 +137,27 @@ export class ApplicationView {
     // load the exam mappings of the application
     this.reloadMappings();
 
-    // load the learning agreement modification proposals (visible to every role)
-    this.loadModifications();
+    // load the learning agreement modification proposals first (visible to every
+    // role): when one is pending, its document is the learning agreement to
+    // display (see loadDocuments)
+    this.loadModifications(() => this.loadDocuments());
+  }
 
-    // load the documents (learning agreement + transcript of records)
+  // loads the documents (learning agreement + transcript of records). the
+  // learning agreement to display is the one proposed by the pending
+  // modification (its document_id) when there is one; otherwise it falls back
+  // to the latest learning agreement of the application. the fallback is what
+  // implements the rollback: rejecting a modification deletes its document, so
+  // the previous LA is what remains.
+  private loadDocuments() {
     this.applicationsApi.listApplicationDocuments(this.applicationId).subscribe({
       next: res => {
-        for (let doc of res) {
-          if (doc.document_type === 'learning_agreement') {
-            this.learningAgreement = doc;
-          }
-          if (doc.document_type === 'transcript') {
-            this.transcript = doc;
-          }
-        }
+        const las = res.filter(d => d.document_type === 'learning_agreement');
+        const pending = this.modifications.find(m => m.status === 'pending' && m.document_id != null);
+        const pendingLa = pending ? las.find(d => d.id === pending.document_id) : undefined;
+        this.learningAgreement = pendingLa ?? las[las.length - 1] ?? null;
+        const tor = res.find(d => d.document_type === 'transcript');
+        if (tor) this.transcript = tor;
       },
       error: err => console.error(err),
       complete: () => this.cdr.markForCheck()
@@ -261,18 +268,29 @@ export class ApplicationView {
         mod.notes = reason;
         this.app.send_notification('Modification ' + status, 'success');
         this.reloadMappings();
+        // a rejection deletes the proposed document on the backend, so the
+        // displayed learning agreement must roll back to the previous one
+        this.loadDocuments();
       },
       error: err => this.app.send_notification(this.readError(err), 'error'),
       complete: () => this.cdr.markForCheck()
     });
   }
 
-  // loads the LA modification proposals of the application
-  private loadModifications() {
+  // loads the LA modification proposals of the application (the backend returns
+  // only the pending ones), then lets the caller continue: the documents load
+  // depends on this list to pick the learning agreement to display
+  private loadModifications(then?: () => void) {
     this.applicationsApi.listModifications(this.applicationId).subscribe({
       next: res => this.modifications = res,
-      error: err => console.error(err),
-      complete: () => this.cdr.markForCheck()
+      error: err => {
+        console.error(err);
+        if (then) then();
+      },
+      complete: () => {
+        this.cdr.markForCheck();
+        if (then) then();
+      }
     });
   }
 
@@ -402,29 +420,6 @@ export class ApplicationView {
   // ends the mobility: moves to 'exam_recognition' so the transcript can be uploaded
   endMobility() {
     this.setApplicationStatus('exam_recognition', 'Mobility ended');
-  }
-
-  // ---- Referent: approve the recognition document during 'exam_recognition' ----
-  // after the referent approves it, the overseas staff is responsible for
-  // permanently closing the application.
-  approveRecognition() {
-    if (!this.transcript) {
-      this.app.send_notification('No document to approve', 'warning');
-      return;
-    }
-    this.applicationsApi.decideDocument(this.transcript.id, { status: 'approved' }).subscribe({
-      next: res => {
-        if (res.status === 'success') {
-          this.transcript!.status = 'approved';
-          this.transcript!.notes = '';
-          this.app.send_notification('Document approved', 'success');
-        } else {
-          this.app.send_notification(res.error || 'Could not approve the document', 'error');
-        }
-      },
-      error: err => this.app.send_notification(this.readError(err), 'error'),
-      complete: () => this.cdr.markForCheck()
-    });
   }
 
   // ---- Referent decisions on the transcript of records ----
