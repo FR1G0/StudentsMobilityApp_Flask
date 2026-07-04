@@ -75,7 +75,7 @@ CREATE TABLE applications (
 		(date_arrived IS NULL OR EXTRACT(YEAR FROM date_arrived) IN (year, year+1))
 		AND
 		(date_departure IS NULL OR EXTRACT(YEAR FROM date_departure) IN (year, year+1))
-	)
+	),
 	CONSTRAINT valid_semester CHECK (semester IN ('first','second','full')),
 	CONSTRAINT valid_status CHECK (status IN (
 		'learning_agreement_pending',

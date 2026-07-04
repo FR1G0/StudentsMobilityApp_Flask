@@ -143,7 +143,7 @@ def update_user():
         if not user:
             return jsonify({"status": "failed", "error": "user not found"}), 404
         if user.role == 'staff':
-            return jsonify({"status": "failed", "error": "unauthorized access, higher priviledge required for modifying staff rows"}), 403
+            return jsonify({"status": "failed", "error": "unauthorized access, higher privilege required for modifying staff rows"}), 403
 
         if not user_in_institution(g.current_user, user.id_institution):
             return jsonify({"status": "failed", "error": "restricted access to this user"}), 403

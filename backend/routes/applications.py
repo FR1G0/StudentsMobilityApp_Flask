@@ -421,7 +421,7 @@ def insert_application_document():
         new_doc = UploadedDocument(
             document_type=data.get("document_type"),
             file_path=data.get("file_path"),
-            user_id=data.get("user_id"),
+            user_id=g.current_user_id,
             application_id=data.get("application_id"),
             notes=data.get("notes", ""),
         )
