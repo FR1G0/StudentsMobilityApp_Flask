@@ -3,6 +3,7 @@ from datetime import datetime, date, timezone
 from routes.api import extract_db_error
 
 from flask import Blueprint, jsonify, request, g, current_app, send_file
+from sqlalchemy import text
 
 from auth import (
     ROLE_OVERSEAS,
@@ -12,7 +13,7 @@ from auth import (
     custom_jwt_required,
     require_roles,
 )
-from models import db, Application, User, Institution, UploadedDocument, MappedExam
+from models import db, Institution, User, Application, UploadedDocument, MappedExam
 
 applications_blueprint = Blueprint("applications", __name__)
 
@@ -33,8 +34,6 @@ def _application_upload_dir(application_id):
 @applications_blueprint.route("/applications", methods=["GET"])
 @custom_jwt_required()
 def list_applications():
-    # Multitenancy: filter results based on user role to ensure data isolation.
-    # Students see own data; Staff/Referents see data scoped to their institution.
     user = g.current_user
     role = g.current_user_role
     if role == ROLE_STUDENT:
@@ -106,9 +105,11 @@ def post_update_application(id):
 
         # a student may only edit their own application
         if not can_view_application(application, g.current_user, g.current_user_role):
-            return jsonify(
-                {"status": "failed", "error": "cannot modify this application"}
-            ), 403
+            return jsonify({"status": "failed", "error": "access restricted, cannot modify this application"}), 403
+
+        # changes to application may only be done if application status is adequate
+        if application.status not in ('learning_agreement_pending','created','mobility_ongoing'):
+            return jsonify({"status": "failed", "error": f"cannot modify this application while it's in {application.status} status"}), 403
 
         # only these fields may be changed here; reject anything else
         allowed_fields = {
@@ -121,6 +122,17 @@ def post_update_application(id):
             "date_arrived",
             "date_departure",
         }
+
+        # restrict institution and refernt changes
+        if application.status == 'mobility_ongoing':
+            allowed_fields = {
+                "year",
+                "notes",
+                "semester",
+                "date_arrived",
+                "date_departure",
+                }
+
         unknown_fields = set(data.keys()) - allowed_fields
         if unknown_fields:
             return jsonify(
@@ -130,12 +142,8 @@ def post_update_application(id):
                 }
             ), 400
 
-        integer_fields = {
-            "year",
-            "referent_id",
-            "sending_institution",
-            "host_institution",
-        }
+
+        integer_fields = {"year", "referent_id", "sending_institution", "host_institution"}
         date_fields = {"date_arrived", "date_departure"}
 
         for field in data:
@@ -252,6 +260,8 @@ def delete_application(id):
         application = Application.query.get(id)
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
+        if application.status not in ('learning_agreement_pending','created') and g.current_user_role == ROLE_STUDENT:
+            return jsonify( {"status": "failed", "error": f"student cannot delete a {application.status} application"}), 403
 
         # students delete only their own; staff only apps hosted by their institution
         if not can_view_application(application, g.current_user, g.current_user_role):
@@ -436,10 +446,16 @@ def insert_application_document():
                 {"status": "failed", "error": "cannot upload to this application"}
             ), 403
 
+        if data.get("document_type") == 'learning_agreement' and application.status not in ('learning_agreement_pending','created','mobility_ongoing'):
+            return jsonify({"status": "failed", "error": f"cannot upload learning agreement when application is in {application.status}"}), 403
+
+        if data.get("document_type") == 'transcript' and application.status != 'exam_recognition':
+            return jsonify({"status": "failed", "error": f"cannot upload transcript of records when application is in {application.status}"}), 403
+
         new_doc = UploadedDocument(
             document_type=data.get("document_type"),
             file_path=data.get("file_path"),
-            user_id=data.get("user_id", g.current_user_id),
+            user_id=data.get("user_id"),
             application_id=data.get("application_id"),
             notes=data.get("notes", ""),
         )
@@ -470,6 +486,9 @@ def upload_application_document():
             return jsonify(
                 {"status": "failed", "error": "cannot upload to this application"}
             ), 403
+
+        if application.status in ('pre_departure_completed','closed'):
+            return jsonify({"status": "failed", "error": f"cannot upload to this application when it's in status {application.status}"}), 403
 
         uploaded_file = request.files.get("myfile")
         if not uploaded_file or uploaded_file.filename == "":
@@ -503,9 +522,11 @@ def delete_application_document(id):
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
         if not can_view_application(application, g.current_user, g.current_user_role):
-            return jsonify(
-                {"status": "failed", "error": "cannot delete this document"}
-            ), 403
+            return jsonify({"status": "failed", "error": "cannot delete this document"}), 403
+
+        # prevent document deletion when associated application is in a non adequate status
+        if application.status not in ('learning_agreement_pending','created','mobility_ongoing'):
+            return jsonify({"status": "failed", "error": f"cannot delete this document when application is in {application.status}"}), 403
 
         file_path = doc.file_path
         application_id = doc.application_id
@@ -564,7 +585,7 @@ def download_application_document(id):
     )
 
 
-# OK: (DUPLICATE of line 457) [POST] /application/document/:id/decision
+# OK: [POST] /application/document/:id/decision
 # referent approves or rejects an uploaded document (learning agreement / transcript),
 # recording a motivation; decision_date is stamped by a DB trigger
 @applications_blueprint.route(
@@ -647,7 +668,6 @@ def list_application_exam_mappings(application_id):
                     if mapping.decision_date
                     else None,
                     "notes": mapping.notes,
-                    "previous_id": mapping.previous_id,
                     "host_exam_id": mapping.host_exam_id,
                     "sending_exam_id": mapping.sending_exam_id,
                 }

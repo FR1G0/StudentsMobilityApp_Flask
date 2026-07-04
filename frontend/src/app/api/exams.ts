@@ -62,7 +62,7 @@ export class Exams {
 
   // returns the status of the mapped exam status update (sets decision_date to now)
   updateMappedExamStatus(id: number, body: MappedExamStatusBody): Observable<StatusResponse> {
-    const endpoint = this.base_url + '/api/exam/mapping/update/' + id;
+    const endpoint = this.base_url + '/api/exam/mapping/' + id + '/decision';
     return this.http.post<StatusResponse>(endpoint, body, { headers: this.authHeaders() });
   }
 
@@ -98,7 +98,6 @@ export interface MappedExamInsertBody {
   host_exam_id: number;
   sending_exam_id: number;
   notes?: string;
-  previous_id?: number;
 }
 
 export interface MappedExamStatusBody {
@@ -119,7 +118,6 @@ export interface MappedExamRow {
   status: string;
   decision_date: string | null;
   notes: string;
-  previous_id: number;
   host_exam_id: number;
   sending_exam_id: number;
 }

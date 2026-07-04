@@ -10,7 +10,7 @@ BEGIN
 
 	IF NEW.document_type = 'learning_agreement' THEN
 		-- check if the status of associated applicaiton is valid
-		IF app_status NOT IN ('created','learning_agreement_pending') THEN
+		IF app_status NOT IN ('created','learning_agreement_pending','mobility_ongoing') THEN
 			RAISE EXCEPTION 'new learning agreement document cannot be changed while the application is in % status', app_status;
 		END IF;
 
@@ -87,7 +87,7 @@ BEGIN
         RAISE EXCEPTION 'application referent must have role=referent';
 	END IF;
 
--- valid student, institution is checked by existing constraint
+	-- valid student, institution is checked by existing constraint
 	IF NOT EXISTS(
 		SELECT 1
 		FROM users
@@ -95,6 +95,17 @@ BEGIN
 		AND role='student'
 	) THEN
         RAISE EXCEPTION 'application student must have role=student';
+	END IF;
+
+	IF NEW.status IN ('mobility_ongoing','pre_departure_completed','exam_recognition','closed') THEN
+		-- restrict instutution changes
+		IF (NEW.sending_institution <> OLD.sending_institution OR NEW.host_institution <> OLD.host_institution) THEN
+			RAISE EXCEPTION 'cannot change institutions while application is in % status', NEW.status;
+		END IF;
+		-- restrict refernt changes
+		IF (NEW.referent_id IS DISTINCT FROM OLD.referent_id) THEN
+			RAISE EXCEPTION 'cannot change referent while application is in % status', NEW.status;
+		END IF;
 	END IF;
 
 	-- check if student cannot create a application that is already past all the LA & exams validation process
@@ -115,8 +126,20 @@ FOR EACH ROW
 -- student puts application into ongoing or exam_recognition
 CREATE OR REPLACE FUNCTION check_application_status_workflow() RETURNS TRIGGER AS $$
 BEGIN
+	-- the status learning_agreement_pending must only be updated when status is created or la_pending
+	if NEW.status='learning_agreement_pending' AND OLD.status NOT IN ('learning_agreement_pending', 'created') THEN
+		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
+	END IF;
+
+
+	-- the status must go to 'created' only if the previous status was la_pending or created
 	IF NEW.status='created' AND OLD.status NOT IN ('learning_agreement_pending', 'created') THEN
 		RAISE EXCEPTION 'cannot move to created without an approved learning agreement';
+	END IF;
+	
+	-- the status 'created' must be blocked from going anywhere else
+	IF OLD.status='closed' AND NEW.status<>'closed' THEN
+		RAISE EXCEPTION 'status is closed, no actions are possible';
 	END IF;
 
 	-- learning_agreement_pending -> pre_departure_completed
@@ -139,17 +162,60 @@ BEGIN
 			) THEN
 			RAISE EXCEPTION 'cannot move to pre_departure_completed: all mapped exams must be approved';
 		END IF;
+
+		-- check if there is another application in the same time period
+		IF EXISTS (SELECT 1
+			FROM applications
+			WHERE user_id = NEW.user_id
+			AND id <> NEW.id
+			AND status NOT IN ('learning_agreement_pending','created')
+			AND (date_arrived, date_departure) OVERLAPS (NEW.date_arrived, NEW.date_departure)
+			) THEN
+			RAISE EXCEPTION 'this application overlaps with another applicaiton in the same time period';
+		END IF;
 	ELSEIF NEW.status='pre_departure_completed' AND OLD.status<>'created' THEN
 		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 
 	-- pre_departure_completed -> mobility_ongoing
-	IF NEW.status='mobility_ongoing' AND OLD.status<>'pre_departure_completed' THEN
+	IF NEW.status='mobility_ongoing' AND OLD.status='pre_departure_completed' THEN
+		-- when going to mobility_ongoing user can only update the date_arrived field
+		IF NEW.date_departure IS DISTINCT FROM OLD.date_departure THEN
+			RAISE EXCEPTION 'you can only update the arrival date, not the departure date';
+		END IF;
+
+		-- user can update the new date_arrived check if new updated date is overlapping
+		IF EXISTS (SELECT 1
+			FROM applications
+			WHERE user_id = NEW.user_id
+			AND id <> NEW.id
+			AND status NOT IN ('learning_agreement_pending','created')
+			AND (date_arrived, date_departure) OVERLAPS (NEW.date_arrived, NEW.date_departure)
+			) THEN
+			RAISE EXCEPTION 'this application overlaps with another applicaiton in the same time period';
+		END IF;
+	ELSEIF NEW.status='mobility_ongoing' AND OLD.status<>'pre_departure_completed' THEN
 		RAISE EXCEPTION 'application status cannot pass from % -> %', OLD.status, NEW.status;
 	END IF;
 	
 	-- mobility_ongoing -> exam_recognition
 	IF NEW.status='exam_recognition' AND OLD.status='mobility_ongoing' THEN
+		-- when going to exam_recognition user can only update the date_departure field
+		IF NEW.date_arrived IS DISTINCT FROM OLD.date_arrived THEN
+			RAISE EXCEPTION 'you can only update the departure date, not the arrival date';
+		END IF;
+
+		-- user can update the new date_departure check if new updated date is overlapping
+		IF EXISTS (SELECT 1
+			FROM applications
+			WHERE user_id = NEW.user_id
+			AND id <> NEW.id
+			AND status NOT IN ('learning_agreement_pending','created')
+			AND (date_arrived, date_departure) OVERLAPS (NEW.date_arrived, NEW.date_departure)
+			) THEN
+			RAISE EXCEPTION 'this application overlaps with another applicaiton in the same time period';
+		END IF;
+
 		-- update the mapped exams to 'pending' because a grade is expected
 		UPDATE mapped_exams 
 		SET status='pending' 
@@ -196,7 +262,7 @@ CREATE OR REPLACE FUNCTION check_update_status_mapped_exams() RETURNS TRIGGER AS
 DECLARE
 	app_status VARCHAR(32);
 BEGIN
-    IF NEW.status IN ('approved', 'rejected') THEN
+    IF NEW.status IN ('approved', 'pending' ,'rejected') THEN
 		-- prevent status change when application is not in adequate status 
 		SELECT status INTO app_status
 		FROM applications
@@ -220,6 +286,105 @@ WHEN (OLD.status <> NEW.status)
 	EXECUTE FUNCTION check_update_status_mapped_exams();
 
 
+-- checks if grade update is valid
+CREATE OR REPLACE FUNCTION check_grade_changes() RETURNS TRIGGER AS $$
+DECLARE
+app_status VARCHAR(32);
+start_mobility_date DATE;
+end_mobility_date DATE;
+BEGIN
+	-- if exam mapping was already approved, it must not be changed
+	IF OLD.status='approved' THEN
+		RAISE EXCEPTION 'cannot update grade information when exam status is approved';
+	END IF;
+
+	-- check if exam grade changes are valid in the associated application
+	SELECT status, date_arrived, date_departure
+	INTO app_status, start_mobility_date, end_mobility_date
+	FROM applications
+	WHERE id=NEW.application_id;
+
+	-- changes cannot be made if the application is not in exam_recognition status
+	IF app_status <> 'exam_recognition' THEN
+		RAISE EXCEPTION 'cannot update exam grade when associated application is in %', app_status;
+	END IF;
+	
+	-- check if the passed date is within the mobility period
+	IF NEW.date_passed IS NOT NULL
+	   AND (start_mobility_date IS NULL OR end_mobility_date IS NULL
+	        OR NEW.date_passed NOT BETWEEN start_mobility_date AND end_mobility_date) THEN
+		RAISE EXCEPTION 'exam passed date must be between the arrival and departure date';
+	END IF;
+
+	NEW.status = 'pending';
+	RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER exam_grade_changes_check
+BEFORE UPDATE ON mapped_exams
+FOR EACH ROW
+	WHEN (NEW.grade IS DISTINCT FROM OLD.grade
+		OR NEW.date_passed IS DISTINCT FROM OLD.date_passed)
+	EXECUTE FUNCTION check_grade_changes();
+
+--	exam mapping updating needs to be checked 
+CREATE OR REPLACE FUNCTION check_update_mapping() RETURNS TRIGGER AS $$
+DECLARE
+app_status VARCHAR(32);
+BEGIN
+	SELECT status INTO app_status
+	FROM applications
+	WHERE id=NEW.application_id;
+	
+	-- cannot change mapping if not allowed in the current app status
+	IF app_status NOT IN ('learning_agreement_pending','created','mobility_ongoing') THEN
+		RAISE EXCEPTION 'invalid, cannot change exam mapping when associated application is in % status',app_status;
+	END IF;
+
+	NEW.status='pending';
+	RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER exam_mapping_update_check
+BEFORE UPDATE ON mapped_exams
+FOR EACH ROW
+	WHEN (NEW.sending_exam_id<>OLD.sending_exam_id
+	OR NEW.host_exam_id<>OLD.host_exam_id)
+	EXECUTE FUNCTION check_update_mapping();
+
+CREATE OR REPLACE FUNCTION check_exam_mapping_insert() RETURNS TRIGGER AS $$
+DECLARE
+	app_status VARCHAR(32);
+BEGIN
+	IF TG_OP='INSERT' THEN
+		SELECT status INTO app_status
+		FROM applications
+		WHERE id=NEW.application_id;
+	ELSE
+		SELECT status INTO app_status
+		FROM applications
+		WHERE id=OLD.application_id;
+	END IF;
+	
+	IF app_status NOT IN ('learning_agreement_pending','created','mobility_ongoing') THEN
+		RAISE EXCEPTION 'cannot add or remove exams when associated application is in %', app_status;
+	END IF;
+
+	IF TG_OP='INSERT' THEN
+		RETURN NEW;
+	ELSE
+		RETURN OLD;
+	END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER exam_mapping_insert_check
+BEFORE INSERT OR DELETE ON mapped_exams
+FOR EACH ROW
+	EXECUTE FUNCTION check_exam_mapping_insert();
+
 -- when the status of an uploaded_document changes to 'approved' or 'rejected', automatically stamps decision_date with the current timestamp.
 CREATE OR REPLACE FUNCTION check_document_status_update() RETURNS TRIGGER AS $$
 DECLARE
@@ -229,21 +394,19 @@ BEGIN
 	FROM applications
 	WHERE id = NEW.application_id;
 
-    IF NEW.status IN ('approved', 'rejected') THEN
-		-- prevent status change when application is not in adequate status 
-		IF NEW.document_type='learning_agreement' THEN
-			IF app_status NOT IN ('created','learning_agreement_pending') THEN
-				RAISE EXCEPTION 'cannot change document when associated application is in % status', app_status;
-			END IF;
+	-- prevent status change when application is not in adequate status 
+	IF NEW.document_type='learning_agreement' THEN
+		IF app_status NOT IN ('created','learning_agreement_pending') THEN
+			RAISE EXCEPTION 'cannot change document when associated application is in % status', app_status;
 		END IF;
-		IF NEW.document_type='transcript' THEN
-			IF app_status <> 'exam_recognition' THEN
-				RAISE EXCEPTION 'cannot change document status when associated application is in % status', app_status;
-			END IF;
+	END IF;
+	IF NEW.document_type='transcript' THEN
+		IF app_status <> 'exam_recognition' THEN
+			RAISE EXCEPTION 'cannot change document status when associated application is in % status', app_status;
 		END IF;
+	END IF;
 
-        NEW.decision_date := CURRENT_TIMESTAMP;
-    END IF;
+	NEW.decision_date := CURRENT_TIMESTAMP;
 
     RETURN NEW;
 END;
