@@ -91,7 +91,6 @@ CREATE TABLE applications (
 	CONSTRAINT valid_recognition CHECK(
 		NOT(status='exam_recognition' AND date_departure IS NULL )
 	)
-	-- TODO: CONSTRAINTS: check if host institution is user id's institution
 );
 
 
@@ -101,8 +100,6 @@ CREATE TABLE exams (
 	name VARCHAR(255) NOT NULL,
 	credits INT NOT NULL,
 	-- TODO: can this be null? can an institution get deleted but keep the exam for exam mappings?
-
-
 
 	id_institution INT NOT NULL,
 	FOREIGN KEY (id_institution) REFERENCES institutions(id)
@@ -138,7 +135,6 @@ CREATE TABLE mapped_exams (
 	FOREIGN KEY (sending_exam_id) REFERENCES exams(id)
 		ON DELETE RESTRICT
 		ON UPDATE CASCADE,
-	-- TODO: TRIGGER make sure the exams belong to the correct institutions
 	
 	CONSTRAINT valid_status CHECK (status in ('pending','approved','rejected')),
 	CONSTRAINT valid_grade CHECK (grade =-1 OR (grade > 17 AND grade <= 30)),
