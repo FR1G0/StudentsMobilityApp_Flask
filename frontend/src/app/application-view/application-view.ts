@@ -61,10 +61,6 @@ export class ApplicationView {
   laReason: string = '';
   torReason: string = '';
 
-  // student mobility lifecycle inputs
-  mobilityStartDate: string = '';
-  mobilityEndDate: string = '';
-
   cancel() {
     this.router.navigate(['/applications']);
   }
@@ -80,9 +76,6 @@ export class ApplicationView {
       if (state && state.application) {
         this.application = state.application;
         this.applicationId = this.application.id;
-        // pre-fill the student date inputs with whatever the application already has
-        this.mobilityStartDate = this.application.date_arrived || '';
-        this.mobilityEndDate = this.application.date_departure || '';
       }
       this.cdr.markForCheck();
     }
@@ -382,44 +375,6 @@ export class ApplicationView {
   // permanently closes the application once it is in 'exam_recognition'
   closeApplication() {
     this.setApplicationStatus('closed', 'Application closed');
-  }
-
-  // ---- Student: progress the mobility lifecycle ----
-  // the transitions are validated by database triggers, so an invalid one comes
-  // back as an error that is surfaced to the user.
-
-  // starts the mobility: moves to 'mobility_ongoing' and registers the arrival date
-  startMobility() {
-    // save the arrival/departure dates first, then move the status through the
-    // dedicated route: the database triggers require the arrival date to be stored
-    // before the 'mobility_ongoing' transition is allowed.
-    this.applicationsApi.updateApplication(this.applicationId, {
-      date_arrived: this.mobilityStartDate || undefined,
-      date_departure: this.mobilityEndDate || undefined
-    }).subscribe({
-      next: () => {
-        this.applicationsApi.updateApplicationStatus(this.applicationId, { status: 'mobility_ongoing' }).subscribe({
-          next: res => {
-            if (res.status !== 'success') {
-              this.app.send_notification(res.error || 'Could not start the mobility', 'error');
-              return;
-            }
-            this.application.status = 'mobility_ongoing';
-            this.application.date_arrived = this.mobilityStartDate || null;
-            this.application.date_departure = this.mobilityEndDate || null;
-            this.app.send_notification('Mobility started', 'success');
-          },
-          error: err => this.app.send_notification(this.readError(err), 'error'),
-          complete: () => this.cdr.markForCheck()
-        });
-      },
-      error: err => this.app.send_notification(this.readError(err), 'error')
-    });
-  }
-
-  // ends the mobility: moves to 'exam_recognition' so the transcript can be uploaded
-  endMobility() {
-    this.setApplicationStatus('exam_recognition', 'Mobility ended');
   }
 
   // ---- Referent decisions on the transcript of records ----

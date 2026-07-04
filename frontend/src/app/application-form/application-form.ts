@@ -158,42 +158,58 @@ export class ApplicationForm {
       })
 
       // get exam mappings
-      this.applicationsApi.listApplicationExamMappings(this.editApplicationId).subscribe({
-        next: res => {
-          this.onHostInstitutionChange();
-          this.examPairs = [];
-          this.loadedMappings = [];
-          for(let exam_map of res) {
-            this.examPairs.push({
-              local_exam_id: exam_map.sending_exam_id,
-              host_exam_id: exam_map.host_exam_id,
-              mapping_id: exam_map.id,
-              status: exam_map.status,
-              notes: exam_map.notes,
-              grade: exam_map.grade > 0 ? exam_map.grade : null,
-              date_passed: exam_map.date_passed || ''
-            });
-            this.loadedMappings.push({
-              id: exam_map.id,
-              sending_exam_id: exam_map.sending_exam_id,
-              host_exam_id: exam_map.host_exam_id
-            });
-          }
-          // keep at least one empty row so the user can still edit
-          if (this.examPairs.length === 0) {
-            this.examPairs.push({ local_exam_id: 0, host_exam_id: 0 });
-          }
-        },
-        error: err => {
-          console.error(err)
-        },
-        complete : () => { this.cdr.markForCheck(); }
-      });
+      this.loadExamMappings();
 
       // the modification proposals are loaded first: when one is pending, its
       // document is the learning agreement to display (see loadDocuments)
       this.loadModifications(() => this.loadDocuments());
     }
+  }
+
+  // loads (or reloads) the exam mappings of the application into examPairs. the
+  // status/grade carried by each row is used to drive the exam_recognition inputs,
+  // so this must be re-run after a status transition that resets them server-side.
+  private loadExamMappings(then?: () => void) {
+    this.applicationsApi.listApplicationExamMappings(this.editApplicationId).subscribe({
+      next: res => {
+        this.onHostInstitutionChange();
+        this.examPairs = [];
+        this.loadedMappings = [];
+        for(let exam_map of res) {
+          this.examPairs.push({
+            local_exam_id: exam_map.sending_exam_id,
+            host_exam_id: exam_map.host_exam_id,
+            mapping_id: exam_map.id,
+            status: exam_map.status,
+            notes: exam_map.notes,
+            grade: exam_map.grade > 0 ? exam_map.grade : null,
+            date_passed: exam_map.date_passed || ''
+          });
+          this.loadedMappings.push({
+            id: exam_map.id,
+            sending_exam_id: exam_map.sending_exam_id,
+            host_exam_id: exam_map.host_exam_id
+          });
+        }
+        // keep at least one empty row so the user can still edit
+        if (this.examPairs.length === 0) {
+          this.examPairs.push({ local_exam_id: 0, host_exam_id: 0 });
+        }
+      },
+      error: err => {
+        console.error(err)
+      },
+      complete : () => { this.cdr.markForCheck(); if (then) then(); }
+    });
+  }
+
+  // a mapped exam is locked in the exam_recognition phase only once its grade has
+  // actually been recognized: an 'approved' status carrying a recorded grade. an
+  // approved-but-ungraded mapping (approved during the learning agreement phase and
+  // reset to 'pending' on entering exam_recognition) still needs a grade, so it
+  // stays editable.
+  examResultLocked(pair: ExamPair): boolean {
+    return pair.status === 'approved' && pair.grade != null;
   }
 
   onHostInstitutionChange() {
@@ -469,12 +485,14 @@ export class ApplicationForm {
       date_arrived: this.start_date || undefined,
       date_departure: this.end_date || undefined
     }).subscribe({
-      next: () => this.changeStatus('exam_recognition', 'Mobility ended'),
+      // entering exam_recognition resets every mapped exam to 'pending' server-side
+      // (a grade is now expected): reload the mappings so the grade inputs unlock
+      next: () => this.changeStatus('exam_recognition', 'Mobility ended', () => this.loadExamMappings()),
       error: err => this.app.send_notification(this.backendError(err, 'Operation failed'), 'error')
     });
   }
 
-  private changeStatus(newStatus: string, message: string) {
+  private changeStatus(newStatus: string, message: string, then?: () => void) {
     this.applicationsApi.updateApplicationStatus(this.editApplicationId, { status: newStatus }).subscribe({
       next: res => {
         if (res.status !== 'success') {
@@ -483,6 +501,7 @@ export class ApplicationForm {
         }
         this.status = newStatus;
         this.app.send_notification(message, 'success');
+        if (then) then();
       },
       error: err => this.app.send_notification(this.backendError(err, 'Operation failed'), 'error'),
       complete: () => this.cdr.markForCheck()
@@ -641,7 +660,7 @@ export class ApplicationForm {
   private gradedPairs(): ExamPair[] {
     const results: ExamPair[] = [];
     for (let pair of this.examPairs) {
-      if (pair.mapping_id && pair.status !== 'approved' && pair.grade && pair.date_passed) {
+      if (pair.mapping_id && !this.examResultLocked(pair) && pair.grade && pair.date_passed) {
         results.push(pair);
       }
     }
