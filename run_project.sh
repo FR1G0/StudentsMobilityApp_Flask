@@ -10,6 +10,18 @@ if ! command -v docker &> /dev/null ; then
 	exit 1
 fi
 
+### NOTE: prefer docker compose when available (v2 plugin or legacy binary)
+
+if docker compose version &> /dev/null ; then
+	echo "[DOCKER] docker compose found, starting the full stack..."
+	exec docker compose up --build
+elif command -v docker-compose &> /dev/null ; then
+	echo "[DOCKER] legacy docker-compose found, starting the full stack..."
+	exec docker-compose up --build
+fi
+
+echo "[DOCKER] docker compose not available, falling back to plain docker."
+
 ###  NOTE: building
 
 # 1. Database
@@ -29,7 +41,10 @@ docker build -t overseas-frontend -f frontend/Dockerfile ./frontend
 # create network to allow comms between the containers
 docker network create overseas-network 2>/dev/null || true
 
-# dataase
+# named volume so database state survives container recreation
+docker volume create overseas-db-data > /dev/null
+
+# database
 echo "[DOCKER] Running database (postgres) container..."
 if [ "$(docker ps -aq -f name=overseas-db-container)" ]; then
     docker start overseas-db-container
@@ -38,9 +53,23 @@ else
 		--name overseas-db-container \
 		--network overseas-network \
 		-p 5432:5432 \
+		-v overseas-db-data:/var/lib/postgresql/data \
 		overseas-db
 fi
 
+# the backend runs the migrations on startup (schema + seed data + triggers),
+# so postgres must accept connections before the backend starts
+echo "[DOCKER] Waiting for the database to accept connections..."
+for i in $(seq 1 30); do
+	if docker exec overseas-db-container pg_isready -U myuser -d overseas_db &> /dev/null ; then
+		break
+	fi
+	if [ "$i" -eq 30 ]; then
+		echo "[ERROR] database did not become ready in time."
+		exit 1
+	fi
+	sleep 1
+done
 
 # backend
 echo "[DOCKER] Running backend (flask+sqlalchemy) container..."
@@ -52,6 +81,8 @@ else
 		--network overseas-network \
 		-p 5000:5000 \
 		-e DATABASE_URL=postgresql://myuser:123@overseas-db-container:5432/overseas_db \
+		-e SECRET_KEY="${SECRET_KEY:-supersecret}" \
+		-e JWT_SECRET="${JWT_SECRET:-}" \
 		overseas-backend
 fi
 
@@ -66,3 +97,5 @@ else
 		-p 4200:4200 \
 		overseas-frontend
 fi
+
+echo "[DONE] frontend: http://localhost:4200 - backend API: http://localhost:5000"
