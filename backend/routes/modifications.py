@@ -40,7 +40,7 @@ def create_modification(application_id):
             return jsonify({"error": "not your application, access restricted"}), 403
 
         if application.status != "mobility_ongoing":
-            return jsonify({"error": "modifications allowed only during mobility"}), 400
+            return jsonify({"error": "modifications allowed only during mobility"}), 403
 
         # only one open proposal at a time
         if LAModification.query.filter_by(application_id=application_id, status="pending").first():

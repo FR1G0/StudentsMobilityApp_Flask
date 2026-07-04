@@ -76,7 +76,7 @@ def get_user(id):
         if not user:
             return jsonify({"error": "user not found"}), 404
         if not user_in_institution(g.current_user, user.id_institution):
-            return jsonify({"error": "access restricted"}), 404
+            return jsonify({"error": "access restricted"}), 403
 
         result = {
             "id": user.id,
