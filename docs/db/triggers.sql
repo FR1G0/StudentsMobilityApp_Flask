@@ -204,6 +204,14 @@ BEGIN
 		IF NEW.date_arrived IS DISTINCT FROM OLD.date_arrived THEN
 			RAISE EXCEPTION 'you can only update the departure date, not the arrival date';
 		END IF;
+		
+		IF EXISTS (SELECT 1
+			FROM la_modifications
+			WHERE application_id=NEW.id
+			AND status='pending'
+			) THEN
+			RAISE EXCEPTION 'cannot change application status to exam_recognition when there are pending modifications';
+		END IF;
 
 		-- user can update the new date_departure check if new updated date is overlapping
 		IF EXISTS (SELECT 1
