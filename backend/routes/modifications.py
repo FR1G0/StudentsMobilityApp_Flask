@@ -24,6 +24,8 @@ modifications_blueprint = Blueprint("modifications", __name__)
 # student proposes a Learning Agreement modification during mobility: the current
 # exam mapping is snapshotted into la_modification_exams and replaced by the proposed
 # one, all inside a single transaction. The updated LA must already be uploaded.
+# WARN: the entire exam mapping of the application must be provided, even those not involved in the modification,
+# this function snapshots all the current mappings, if mappings are partially provided, they will be lost upon rejection
 @modifications_blueprint.route("/application/<int:application_id>/modification", methods=["POST"])
 @custom_jwt_required()
 @require_roles(ROLE_STUDENT)
@@ -112,7 +114,7 @@ def list_modifications(application_id):
         return jsonify({"error": "not authorized"}), 403
 
     result = []
-    for mod in LAModification.query.filter_by(application_id=application_id).all():
+    for mod in LAModification.query.filter_by(application_id=application_id, status="pending").all():
         item = mod.to_dict()
         item["snapshot"] = [
             s.to_dict()
@@ -146,12 +148,20 @@ def decide_modification(id):
             return jsonify({"error": "modification already decided"}), 409
 
         application = Application.query.get(mod.application_id)
+        if not application:
+            return jsonify({"error": "application not found"}), 404
+
         if application.referent_id != g.current_user_id:
             return jsonify({"error": "not the referent of this application"}), 403
 
         notes = data.get("notes", "")
         if new_status == "rejected" and not notes.strip():
             return jsonify({"error": "rejection requires a motivation"}), 400
+
+        original_doc = UploadedDocument.query.filter(
+                UploadedDocument.application_id == mod.application_id,
+                UploadedDocument.id!=mod.document_id,
+                UploadedDocument.document_type == "learning_agreement").first()
 
         if new_status == "rejected":
             # ---- restore the previous mapping from the snapshot, atomically ----
@@ -167,11 +177,26 @@ def decide_modification(id):
                     status=s.status,
                     notes=s.notes,
                     decision_date=s.decision_date,
-                ))
+                    ))
+            # --- restore the previous la through the deletion of the modification document_id
+            if original_doc != None:
+                mod_document = UploadedDocument.query.get(mod.document_id)
+                db.session.delete(mod_document)
+
+        if new_status == "approved":
+            for s in MappedExam.query.filter_by(application_id=mod.application_id).all():
+                s.status = "approved"
+            mod_document = UploadedDocument.query.get(mod.document_id)
+            if not mod_document:
+                return jsonify({"error": "modified learning agreeement document not found"}), 404
+            if original_doc is not None:
+                db.session.delete(original_doc)
+            mod_document.status = "approved"
+
 
         mod.status = new_status
         mod.notes = notes
-        # decision_date is set by the set_modification_decision_date trigger
+        # decision_date is going to be set by the set_modification_decision_date trigger
         db.session.commit()
         return jsonify({"status": "success"}), 200
     except Exception as e:
