@@ -4,7 +4,6 @@ ENV POSTGRES_DB=overseas_db
 ENV POSTGRES_USER=myuser
 ENV POSTGRES_PASSWORD=123
 
-COPY database/overseas.sql /docker-entrypoint-initdb.d/overseas.sql
 
 EXPOSE 5432
 
