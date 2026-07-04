@@ -52,6 +52,7 @@ def list_applications():
         result.append(app.to_dict())
     return jsonify(result), 200
 
+
 # TEST: [POST] /application/insert
 # creates a new application row (student only) and prepares its uploads directory
 @applications_blueprint.route("/application/insert", methods=["POST"])
@@ -132,7 +133,12 @@ def post_update_application(id):
 
         unknown_fields = set(data.keys()) - allowed_fields
         if unknown_fields:
-            return jsonify({"status": "failed", "error": "unknown fields: " + ", ".join(sorted(unknown_fields))}), 400
+            return jsonify(
+                {
+                    "status": "failed",
+                    "error": "unknown fields: " + ", ".join(sorted(unknown_fields)),
+                }
+            ), 400
 
 
         integer_fields = {"year", "referent_id", "sending_institution", "host_institution"}
@@ -142,7 +148,9 @@ def post_update_application(id):
             value = data[field]
             if field in integer_fields:
                 if not isinstance(value, int):
-                    return jsonify({"status": "failed", "error": field + " must be an integer"}), 400
+                    return jsonify(
+                        {"status": "failed", "error": field + " must be an integer"}
+                    ), 400
                 setattr(application, field, value)
             elif field in date_fields:
                 if value is None:
@@ -151,7 +159,12 @@ def post_update_application(id):
                     try:
                         parsed_date = datetime.fromisoformat(value).date()
                     except (ValueError, TypeError):
-                        return jsonify({"status": "failed", "error": field + " must be an ISO-8601 date"}), 400
+                        return jsonify(
+                            {
+                                "status": "failed",
+                                "error": field + " must be an ISO-8601 date",
+                            }
+                        ), 400
                     setattr(application, field, parsed_date)
             else:
                 setattr(application, field, value)
@@ -170,8 +183,9 @@ def post_update_application(id):
         msg = extract_db_error(e)
         return jsonify({"status": "failed", "error": msg}), 500
 
+
 # NOTE: [POST] /application/status/update/:id
-# updates the application status, following a very specific workflow 
+# updates the application status, following a very specific workflow
 @applications_blueprint.route("/application/status/update/<int:id>", methods=["POST"])
 @custom_jwt_required()
 @require_roles(ROLE_STUDENT, ROLE_REFERENT, ROLE_OVERSEAS)
@@ -191,27 +205,39 @@ def update_status_application(id):
 
         role = g.current_user_role
         if not can_view_application(application, g.current_user, role):
-            return jsonify( {"status": "failed", "error": "cannot modify this application"}), 403
+            return jsonify(
+                {"status": "failed", "error": "cannot modify this application"}
+            ), 403
 
         if role == ROLE_STUDENT:
             if data["status"] not in ("mobility_ongoing", "exam_recognition"):
-                return jsonify({"status": "failed", "error": "student cannot set this status"}), 403
+                return jsonify(
+                    {"status": "failed", "error": "student cannot set this status"}
+                ), 403
 
         # check referent
         if role == ROLE_REFERENT:
             referent_allowed_fields = {"status", "notes"}
             if set(data.keys()) - referent_allowed_fields:
-                return jsonify({"status": "failed", "error": "referent can only change status"}), 403
+                return jsonify(
+                    {"status": "failed", "error": "referent can only change status"}
+                ), 403
             if data["status"] not in ("created", "learning_agreement_pending"):
-                return jsonify({"status": "failed", "error": "referent cannot set this status"}), 403
+                return jsonify(
+                    {"status": "failed", "error": "referent cannot set this status"}
+                ), 403
 
         # check staff
         if role == ROLE_OVERSEAS:
             overseas_allowed_fields = {"status"}
             if set(data.keys()) - overseas_allowed_fields:
-                return jsonify({"status": "failed", "error": "staff can only change status"}), 403
+                return jsonify(
+                    {"status": "failed", "error": "staff can only change status"}
+                ), 403
             if data["status"] not in ("pre_departure_completed", "closed"):
-                return jsonify({"status": "failed", "error": "staff cannot set this status"}), 403
+                return jsonify(
+                    {"status": "failed", "error": "staff cannot set this status"}
+                ), 403
 
         application.status = data["status"]
         db.session.commit()
@@ -237,7 +263,9 @@ def delete_application(id):
 
         # students delete only their own; staff only apps hosted by their institution
         if not can_view_application(application, g.current_user, g.current_user_role):
-            return jsonify( {"status": "failed", "error": "cannot delete this application"}), 403
+            return jsonify(
+                {"status": "failed", "error": "cannot delete this application"}
+            ), 403
 
         db.session.delete(application)
         db.session.commit()
@@ -247,7 +275,9 @@ def delete_application(id):
         msg = extract_db_error(e)
         return jsonify({"status": "failed", "error": msg}), 500
 
+
 #   -------  APPLICATION INFORMATION SECTION  -------
+
 
 # OK: [GET] /applications/info/list
 # returns the list of applications visible to the current user (same role
@@ -353,7 +383,9 @@ def get_application_academic_years():
         i = i + 1
     return jsonify(years), 200
 
+
 #   -------  DOCUMENT SECTION  -------
+
 
 # TEST: [POST] /application/documents/:id
 # returns the list of all uploaded documents associated to the given application
@@ -408,7 +440,9 @@ def insert_application_document():
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
         if not can_view_application(application, g.current_user, g.current_user_role):
-            return jsonify( {"status": "failed", "error": "cannot upload to this application"}), 403
+            return jsonify(
+                {"status": "failed", "error": "cannot upload to this application"}
+            ), 403
 
         if data.get("document_type") == 'learning_agreement' and application.status not in ('learning_agreement_pending','created','mobility_ongoing'):
             return jsonify({"status": "failed", "error": f"cannot upload learning agreement when application is in {application.status}"}), 403
@@ -447,7 +481,9 @@ def upload_application_document():
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
         if not can_view_application(application, g.current_user, g.current_user_role):
-            return jsonify({"status": "failed", "error": "cannot upload to this application"}), 403
+            return jsonify(
+                {"status": "failed", "error": "cannot upload to this application"}
+            ), 403
 
         if application.status in ('pre_departure_completed','closed'):
             return jsonify({"status": "failed", "error": f"cannot upload to this application when it's in status {application.status}"}), 403
@@ -515,7 +551,9 @@ def delete_application_document(id):
 
 # OK: [GET] /application/document/:id/download
 # sends the uploaded file back so the frontend can download it, allows anyone that has access to that application to download/view the documents
-@applications_blueprint.route("/application/document/<int:id>/download", methods=["GET"])
+@applications_blueprint.route(
+    "/application/document/<int:id>/download", methods=["GET"]
+)
 @custom_jwt_required()
 def download_application_document(id):
     doc = UploadedDocument.query.get(id)
@@ -548,7 +586,9 @@ def download_application_document(id):
 # OK: [POST] /application/document/:id/decision
 # referent approves or rejects an uploaded document (learning agreement / transcript),
 # recording a motivation; decision_date is stamped by a DB trigger
-@applications_blueprint.route("/application/document/<int:id>/decision", methods=["POST"])
+@applications_blueprint.route(
+    "/application/document/<int:id>/decision", methods=["POST"]
+)
 @custom_jwt_required()
 @require_roles(ROLE_REFERENT, ROLE_OVERSEAS)
 def decide_application_document(id):
@@ -559,7 +599,12 @@ def decide_application_document(id):
 
         new_status = data["status"]
         if new_status not in ("approved", "rejected"):
-            return jsonify({"status": "failed", "error": "document status must be approved or rejected"}), 400
+            return jsonify(
+                {
+                    "status": "failed",
+                    "error": "document status must be approved or rejected",
+                }
+            ), 400
 
         doc = UploadedDocument.query.get(id)
         if not doc:
@@ -569,12 +614,16 @@ def decide_application_document(id):
         if not application:
             return jsonify({"status": "failed", "error": "application not found"}), 404
         if not can_view_application(application, g.current_user, g.current_user_role):
-            return jsonify( {"status": "failed", "error": "restricted access for this application"}), 403
+            return jsonify(
+                {"status": "failed", "error": "restricted access for this application"}
+            ), 403
 
         notes = data.get("notes", "")
         # a rejection must carry a motivation
         if new_status == "rejected" and not (notes and notes.strip()):
-            return jsonify({"status": "failed", "error": "rejection requires a motivation"}), 400
+            return jsonify(
+                {"status": "failed", "error": "rejection requires a motivation"}
+            ), 400
 
         doc.status = new_status
         doc.notes = notes
@@ -589,7 +638,9 @@ def decide_application_document(id):
 
 # OK: [GET] /application/exams_mapping/:application_id
 # returns the list of mapped_exams rows associated to the given application, anyone with access to the application can view the associated exam mappings.
-@applications_blueprint.route("/application/exams_mapping/<int:application_id>", methods=["GET"])
+@applications_blueprint.route(
+    "/application/exams_mapping/<int:application_id>", methods=["GET"]
+)
 @custom_jwt_required()
 def list_application_exam_mappings(application_id):
     try:
@@ -624,7 +675,9 @@ def list_application_exam_mappings(application_id):
         msg = extract_db_error(e)
         return jsonify({"error": msg}), 500
 
+
 #   -------  DOCUMENT INFORMATION SECTION  -------
+
 
 # OK: [GET] /application/document/info/type
 # returns the list of allowed document types, for frontend
