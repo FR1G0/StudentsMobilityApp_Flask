@@ -400,7 +400,7 @@ BEGIN
 
 	-- prevent status change when application is not in adequate status 
 	IF NEW.document_type='learning_agreement' THEN
-		IF app_status NOT IN ('created','learning_agreement_pending') THEN
+		IF app_status NOT IN ('created','learning_agreement_pending','mobility_ongoing') THEN
 			RAISE EXCEPTION 'cannot change document when associated application is in % status', app_status;
 		END IF;
 	END IF;

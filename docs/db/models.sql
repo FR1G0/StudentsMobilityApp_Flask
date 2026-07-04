@@ -65,6 +65,7 @@ CREATE TABLE applications (
 		ON UPDATE CASCADE,
 
 	
+	-- TODO: add constraints that prevents user from adding application before the current date
 
 	CONSTRAINT different_host_sending CHECK (host_institution <> sending_institution),
 	CONSTRAINT valid_mobility_dates CHECK (
