@@ -152,13 +152,13 @@
           <label for="date-start" class="text-[0.7rem] text-text-secondary">Start Date</label>
           <div class="relative">
             <span class="mdi mdi-calendar-start absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-sm pointer-events-none"></span>
-            <!-- during 'exam_recognition' only the departure date can change -->
+            <!-- both dates are editable only while 'mobility_ongoing' -->
             <input
               [(ngModel)]="start_date"
               id="date-start"
               name="dateStart"
               type="date"
-              [disabled]="action === 'edit' && status === 'exam_recognition'"
+              [disabled]="startDateLocked()"
               class="w-full bg-bg-base border border-border-default hover:border-border-strong focus:border-border-strong focus:outline-none rounded pl-8 pr-3 py-2 text-[0.8rem] text-text-primary transition-colors duration-150 [color-scheme:dark]"
             />
           </div>
@@ -168,13 +168,13 @@
           <label for="date-end" class="text-[0.7rem] text-text-secondary">End Date</label>
           <div class="relative">
             <span class="mdi mdi-calendar-end absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-sm pointer-events-none"></span>
-            <!-- during 'mobility_ongoing' only the arrival date can change -->
+            <!-- both dates stay editable while 'mobility_ongoing' -->
             <input
               [(ngModel)]="end_date"
               id="date-end"
               name="dateEnd"
               type="date"
-              [disabled]="action === 'edit' && status === 'mobility_ongoing'"
+              [disabled]="endDateLocked()"
               class="w-full bg-bg-base border border-border-default hover:border-border-strong focus:border-border-strong focus:outline-none rounded pl-8 pr-3 py-2 text-[0.8rem] text-text-primary transition-colors duration-150 [color-scheme:dark]"
             />
           </div>
@@ -420,7 +420,7 @@
             </div>
             <span class="mdi mdi-download text-text-muted group-hover:text-blue-400/80 text-base shrink-0 transition-colors duration-100"></span>
           </button>
-          @if (!coreFieldsLocked() || status === 'mobility_ongoing') {
+          @if (!learningAgreementLocked()) {
             <label
               for="la-upload"
               class="flex items-center gap-1 px-2.5 py-1 rounded text-[0.65rem] text-text-secondary border border-border-default hover:border-border-strong hover:bg-bg-overlay cursor-pointer transition-all duration-100 shrink-0"
@@ -431,7 +431,7 @@
           }
           <input id="la-upload" name="learningAgreement" type="file" accept=".pdf" class="sr-only" (change)="onFileSelected($event)" />
         </div>
-      } @else {
+      } @else if (!learningAgreementLocked()) {
         <!-- no file yet -->
         <label
           for="la-upload"
@@ -444,6 +444,8 @@
           </div>
           <input id="la-upload" name="learningAgreement" type="file" accept=".pdf" class="sr-only" (change)="onFileSelected($event)" />
         </label>
+      } @else {
+        <p class="text-[0.7rem] text-text-muted italic">No learning agreement uploaded.</p>
       }
 
       @if (existingDocument && existingDocument.status === 'rejected' && existingDocument.notes) {

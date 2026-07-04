@@ -65,6 +65,7 @@ CREATE TABLE applications (
 		ON UPDATE CASCADE,
 
 	
+	-- TODO: add constraints that prevents user from adding application before the current date
 
 	CONSTRAINT different_host_sending CHECK (host_institution <> sending_institution),
 	CONSTRAINT valid_mobility_dates CHECK (
@@ -75,7 +76,7 @@ CREATE TABLE applications (
 		(date_arrived IS NULL OR EXTRACT(YEAR FROM date_arrived) IN (year, year+1))
 		AND
 		(date_departure IS NULL OR EXTRACT(YEAR FROM date_departure) IN (year, year+1))
-	)
+	),
 	CONSTRAINT valid_semester CHECK (semester IN ('first','second','full')),
 	CONSTRAINT valid_status CHECK (status IN (
 		'learning_agreement_pending',
@@ -91,7 +92,6 @@ CREATE TABLE applications (
 	CONSTRAINT valid_recognition CHECK(
 		NOT(status='exam_recognition' AND date_departure IS NULL )
 	)
-	-- TODO: CONSTRAINTS: check if host institution is user id's institution
 );
 
 
@@ -101,8 +101,6 @@ CREATE TABLE exams (
 	name VARCHAR(255) NOT NULL,
 	credits INT NOT NULL,
 	-- TODO: can this be null? can an institution get deleted but keep the exam for exam mappings?
-
-
 
 	id_institution INT NOT NULL,
 	FOREIGN KEY (id_institution) REFERENCES institutions(id)
@@ -138,7 +136,6 @@ CREATE TABLE mapped_exams (
 	FOREIGN KEY (sending_exam_id) REFERENCES exams(id)
 		ON DELETE RESTRICT
 		ON UPDATE CASCADE,
-	-- TODO: TRIGGER make sure the exams belong to the correct institutions
 	
 	CONSTRAINT valid_status CHECK (status in ('pending','approved','rejected')),
 	CONSTRAINT valid_grade CHECK (grade =-1 OR (grade > 17 AND grade <= 30)),

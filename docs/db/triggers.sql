@@ -262,18 +262,22 @@ CREATE OR REPLACE FUNCTION check_update_status_mapped_exams() RETURNS TRIGGER AS
 DECLARE
 	app_status VARCHAR(32);
 BEGIN
-    IF NEW.status IN ('approved', 'pending' ,'rejected') THEN
-		-- prevent status change when application is not in adequate status 
-		SELECT status INTO app_status
-		FROM applications
-		WHERE id = NEW.application_id;
-		IF app_status NOT IN ('created','learning_agreement_pending','mobility_ongoing','exam_recognition') THEN
-			RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
+	-- prevent status change when application is not in adequate status 
+	SELECT status INTO app_status
+	FROM applications
+	WHERE id = NEW.application_id;
+	IF app_status NOT IN ('created','learning_agreement_pending','mobility_ongoing','exam_recognition') THEN
+		RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
+	END IF;
+
+	IF app_status = 'exam_recognition' THEN
+		IF NEW.status <> 'pending' 
+		   AND (NEW.grade = -1 OR NEW.date_passed IS NULL) THEN
+			RAISE EXCEPTION 'cannot approve or reject exam without a grade';
 		END IF;
+	END IF;
 
-        NEW.decision_date := CURRENT_TIMESTAMP;
-    END IF;
-
+	NEW.decision_date := CURRENT_TIMESTAMP;
 
     RETURN NEW;
 END;
@@ -396,7 +400,7 @@ BEGIN
 
 	-- prevent status change when application is not in adequate status 
 	IF NEW.document_type='learning_agreement' THEN
-		IF app_status NOT IN ('created','learning_agreement_pending') THEN
+		IF app_status NOT IN ('created','learning_agreement_pending','mobility_ongoing') THEN
 			RAISE EXCEPTION 'cannot change document when associated application is in % status', app_status;
 		END IF;
 	END IF;

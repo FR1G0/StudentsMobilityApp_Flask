@@ -193,7 +193,7 @@ def update_mapped_exam_status(id):
             return jsonify( {"status": "failed", "error": "cannot decide on this exam"}), 403
 
         # prevenet referent to make changes oustide of allowed application status scope
-        if application in ('pre_departure_completed','closed'):
+        if application.status in ('pre_departure_completed','closed'):
             return jsonify( {"status": "failed", "error": f"cannot decide on this exam when associated application is in {application.status}"}), 403
 
         if "status" in data:
