@@ -44,29 +44,6 @@
     </span>
   </div>
 
-  <!-- Section: Workflow actions (role + status based) -->
-  @if (user.role === 'referent' && application.status === 'exam_recognition') {
-    <div class="mb-6 pb-4 border-b border-border-subtle">
-      <p class="flex items-center gap-2 text-[0.6rem] text-text-muted uppercase tracking-widest mb-3">
-        <span class="mdi mdi-cog-outline text-sm"></span>
-        Workflow Actions
-      </p>
-      <div class="flex flex-wrap items-center gap-2">
-
-        <!-- referent: approve the recognition document while in exam_recognition -->
-        <button
-          type="button"
-          (click)="approveRecognition()"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded text-[0.7rem] font-medium bg-[#101e14] border border-[#1a4022] text-[#4db864] hover:bg-[#13261a] transition-all duration-150"
-        >
-          <span class="mdi mdi-file-check-outline text-sm"></span>
-          Approve Recognition
-        </button>
-
-      </div>
-    </div>
-  }
-
   <!-- Section: Dati Studente (read-only) -->
   <fieldset class="mb-6">
     <legend class="flex items-center gap-2 text-[0.6rem] text-text-muted uppercase tracking-widest mb-3">

@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict bgkxYOdJqd3y9esJvpKwG6X5Do0JlqKg8BnwBZBiRbWk04YtqBDjf2cD1IfIrN3
+\restrict qhjOaqcv1T22CFwtzbBLSl6G5SubAclLa73XTwnEhQMsK46cm99bihv04XFpL7j
 
 -- Dumped from database version 17.10
 -- Dumped by pg_dump version 18.4
@@ -47,7 +47,18 @@ BEGIN
         RAISE EXCEPTION 'application student must have role=student';
     END IF;
 
-    -- check that a application cannot be created already past the initial statuses
+    IF NEW.status IN ('mobility_ongoing','pre_departure_completed','exam_recognition','closed') THEN
+        -- restrict institution changes
+        IF (NEW.sending_institution <> OLD.sending_institution OR NEW.host_institution <> OLD.host_institution) THEN
+            RAISE EXCEPTION 'cannot change institutions while application is in % status', NEW.status;
+        END IF;
+        -- restrict referent changes
+        IF (NEW.referent_id IS DISTINCT FROM OLD.referent_id) THEN
+            RAISE EXCEPTION 'cannot change referent while application is in % status', NEW.status;
+        END IF;
+    END IF;
+
+    -- check if student cannot create a application that is already past all the LA & exams validation process
     IF TG_OP='INSERT' AND NEW.status NOT IN('created','learning_agreement_pending') THEN
         RAISE EXCEPTION 'application status cannot start with %', NEW.status;
     END IF;
@@ -211,7 +222,7 @@ BEGIN
 
 	-- prevent status change when application is not in adequate status 
 	IF NEW.document_type='learning_agreement' THEN
-		IF app_status NOT IN ('created','learning_agreement_pending') THEN
+		IF app_status NOT IN ('created','learning_agreement_pending','mobility_ongoing') THEN
 			RAISE EXCEPTION 'cannot change document when associated application is in % status', app_status;
 		END IF;
 	END IF;
@@ -231,6 +242,41 @@ $$;
 ALTER FUNCTION public.check_document_status_update() OWNER TO myuser;
 
 --
+-- Name: check_exam_mapping_insert(); Type: FUNCTION; Schema: public; Owner: myuser
+--
+
+CREATE FUNCTION public.check_exam_mapping_insert() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    app_status VARCHAR(32);
+BEGIN
+    IF TG_OP='INSERT' THEN
+        SELECT status INTO app_status
+        FROM applications
+        WHERE id=NEW.application_id;
+    ELSE
+        SELECT status INTO app_status
+        FROM applications
+        WHERE id=OLD.application_id;
+    END IF;
+
+    IF app_status NOT IN ('learning_agreement_pending','created','mobility_ongoing') THEN
+        RAISE EXCEPTION 'cannot add or remove exams when associated application is in %', app_status;
+    END IF;
+
+    IF TG_OP='INSERT' THEN
+        RETURN NEW;
+    ELSE
+        RETURN OLD;
+    END IF;
+END;
+$$;
+
+
+ALTER FUNCTION public.check_exam_mapping_insert() OWNER TO myuser;
+
+--
 -- Name: check_grade_changes(); Type: FUNCTION; Schema: public; Owner: myuser
 --
 
@@ -238,35 +284,35 @@ CREATE FUNCTION public.check_grade_changes() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 DECLARE
-app_status VARCHAR(32);
-start_mobility_date DATE;
-end_mobility_date DATE;
+    app_status VARCHAR(32);
+    start_mobility_date DATE;
+    end_mobility_date DATE;
 BEGIN
-	-- if exam mapping was already approved, it must not be changed
-	IF OLD.status='approved' THEN
-		RAISE EXCEPTION 'cannot update grade information when exam status is approved';
-	END IF;
+    -- if exam mapping was already approved, it must not be changed
+    IF OLD.status='approved' THEN
+        RAISE EXCEPTION 'cannot update grade information when exam status is approved';
+    END IF;
 
-	-- check if exam grade changes are valid in the associated application
-	SELECT status, date_arrived, date_departure
-	INTO app_status, start_mobility_date, end_mobility_date
-	FROM applications
-	WHERE id=NEW.application_id;
+    -- check if exam grade changes are valid in the associated application
+    SELECT status, date_arrived, date_departure
+    INTO app_status, start_mobility_date, end_mobility_date
+    FROM applications
+    WHERE id=NEW.application_id;
 
-	-- changes cannot be made if the application is not in exam_recognition status
-	IF app_status <> 'exam_recognition' THEN
-		RAISE EXCEPTION 'cannot update exam grade when associated application is in %', app_status;
-	END IF;
-	
-	-- check if the passed date is within the mobility period
-	IF NEW.date_passed IS NOT NULL
-	   AND (start_mobility_date IS NULL OR end_mobility_date IS NULL
-	        OR NEW.date_passed NOT BETWEEN start_mobility_date AND end_mobility_date) THEN
-		RAISE EXCEPTION 'exam passed date must be between the arrival and departure date';
-	END IF;
+    -- changes cannot be made if the application is not in exam_recognition status
+    IF app_status <> 'exam_recognition' THEN
+        RAISE EXCEPTION 'cannot update exam grade when associated application is in %', app_status;
+    END IF;
 
-	NEW.status = 'pending';
-	RETURN NEW;
+    -- check if the passed date is within the mobility period
+    IF NEW.date_passed IS NOT NULL
+       AND (start_mobility_date IS NULL OR end_mobility_date IS NULL
+            OR NEW.date_passed NOT BETWEEN start_mobility_date AND end_mobility_date) THEN
+        RAISE EXCEPTION 'exam passed date must be between the arrival and departure date';
+    END IF;
+
+    NEW.status = 'pending';
+    RETURN NEW;
 END;
 $$;
 
@@ -297,10 +343,12 @@ BEGIN
     SELECT id_institution INTO sending_exam_inst
         FROM exams WHERE id = NEW.sending_exam_id;
 
+	-- this can be possible through an independent insert
     IF host_exam_inst <> app_host_inst THEN
         RAISE EXCEPTION 'host_exam_id institution does not match application host_institution';
     END IF;
 
+	-- this can be possible through an independent insert
     IF sending_exam_inst <> app_sending_inst THEN
         RAISE EXCEPTION 'sending_exam_id institution does not match application sending_institution';
     END IF;
@@ -320,19 +368,19 @@ CREATE FUNCTION public.check_update_mapping() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 DECLARE
-app_status VARCHAR(32);
+    app_status VARCHAR(32);
 BEGIN
-	SELECT status INTO app_status
-	FROM applications
-	WHERE id=NEW.application_id;
-	
-	-- cannot change mapping if not allowed in the current app status
-	IF app_status NOT IN ('learning_agreement_pending','created','mobility_ongoing') THEN
-		RAISE EXCEPTION 'invalid, cannot change exam mapping when associated application is in % status',app_status;
-	END IF;
+    SELECT status INTO app_status
+    FROM applications
+    WHERE id=NEW.application_id;
 
-	NEW.status='pending';
-	RETURN NEW;
+    -- cannot change mapping if not allowed in the current app status
+    IF app_status NOT IN ('learning_agreement_pending','created','mobility_ongoing') THEN
+        RAISE EXCEPTION 'invalid, cannot change exam mapping when associated application is in % status',app_status;
+    END IF;
+
+    NEW.status='pending';
+    RETURN NEW;
 END;
 $$;
 
@@ -347,20 +395,24 @@ CREATE FUNCTION public.check_update_status_mapped_exams() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 DECLARE
-	app_status VARCHAR(32);
+    app_status VARCHAR(32);
 BEGIN
-    IF NEW.status IN ('approved', 'pending' ,'rejected') THEN
-		-- prevent status change when application is not in adequate status 
-		SELECT status INTO app_status
-		FROM applications
-		WHERE id = NEW.application_id;
-		IF app_status NOT IN ('created','learning_agreement_pending','mobility_ongoing','exam_recognition') THEN
-			RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
-		END IF;
-
-        NEW.decision_date := CURRENT_TIMESTAMP;
+    -- prevent status change when application is not in adequate status
+    SELECT status INTO app_status
+    FROM applications
+    WHERE id = NEW.application_id;
+    IF app_status NOT IN ('created','learning_agreement_pending','mobility_ongoing','exam_recognition') THEN
+        RAISE EXCEPTION 'cannot change exam status when associated application is in % status', app_status;
     END IF;
 
+    IF app_status = 'exam_recognition' THEN
+        IF NEW.status <> 'pending'
+           AND (NEW.grade = -1 OR NEW.date_passed IS NULL) THEN
+            RAISE EXCEPTION 'cannot approve or reject exam without a grade';
+        END IF;
+    END IF;
+
+    NEW.decision_date := CURRENT_TIMESTAMP;
 
     RETURN NEW;
 END;
@@ -419,32 +471,32 @@ ALTER FUNCTION public.set_modification_decision_date() OWNER TO myuser;
 
 CREATE FUNCTION public.update_application_on_upload() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$ 
+    AS $$
 DECLARE
-	app_status VARCHAR(32);
+    app_status VARCHAR(32);
 BEGIN
-	SELECT status 
-		INTO app_status
-		FROM applications
-		WHERE id = NEW.application_id;
+    SELECT status
+        INTO app_status
+        FROM applications
+        WHERE id = NEW.application_id;
 
-	IF NEW.document_type = 'learning_agreement' THEN
-		-- check if the status of associated applicaiton is valid
-		IF app_status NOT IN ('created','learning_agreement_pending','mobility_ongoing') THEN
-			RAISE EXCEPTION 'new learning agreement document cannot be changed while the application is in % status', app_status;
-		END IF;
+    IF NEW.document_type = 'learning_agreement' THEN
+        -- check if the status of associated application is valid
+        IF app_status NOT IN ('created','learning_agreement_pending','mobility_ongoing') THEN
+            RAISE EXCEPTION 'new learning agreement document cannot be changed while the application is in % status', app_status;
+        END IF;
 
-		IF app_status = 'created' THEN
-			UPDATE applications SET status='learning_agreement_pending' WHERE id=NEW.application_id;
-		END IF;
-	ELSE
-		-- if it's not a LA, it must be a transcript of records (because of check constraint), check if the status of associated application is valid
-		IF app_status <> 'exam_recognition' THEN
-			RAISE EXCEPTION 'new transcript of records document cannot be changed while the application is in % status', app_status;
-		END IF;
-	END IF;
+        IF app_status = 'created' THEN
+            UPDATE applications SET status='learning_agreement_pending' WHERE id=NEW.application_id;
+        END IF;
+    ELSE
+        -- if it's not a LA, it must be a transcript of records (because of check constraint), check if the status of associated application is valid
+        IF app_status <> 'exam_recognition' THEN
+            RAISE EXCEPTION 'new transcript of records document cannot be changed while the application is in % status', app_status;
+        END IF;
+    END IF;
 
-	RETURN NEW;
+    RETURN NEW;
 END
 $$;
 
@@ -976,7 +1028,7 @@ ALTER TABLE ONLY public.users ALTER COLUMN id SET DEFAULT nextval('public.users_
 --
 
 COPY public.alembic_version (version_num) FROM stdin;
-b9d9d1de9be5
+a3adacd6d090
 \.
 
 
@@ -985,13 +1037,11 @@ b9d9d1de9be5
 --
 
 COPY public.applications (id, year, semester, status, date_submitted, sending_institution, host_institution, user_id, date_arrived, date_departure, notes, referent_id) FROM stdin;
+19	2026	second	mobility_ongoing	\N	1	4	1	2026-07-01	2026-07-13		49
+18	2026	second	learning_agreement_pending	\N	1	5	1	2026-07-01	2026-07-15		49
+24	2026	first	created	\N	1	6	1	2026-09-22	2026-11-26		51
 21	2026	second	exam_recognition	\N	1	5	1	2026-07-27	2026-07-29		49
-22	2026	second	closed	\N	1	6	1	2026-08-11	2026-08-25		49
-17	2026	second	learning_agreement_pending	\N	1	3	1	2026-07-01	2026-07-05		49
-23	2026	first	pre_departure_completed	\N	1	7	1	2026-09-02	2026-10-01		49
-18	2026	second	created	\N	1	5	1	2026-07-01	2026-07-15		49
-19	2026	second	pre_departure_completed	\N	1	4	1	2026-07-01	2026-07-13		49
-20	2026	first	mobility_ongoing	\N	1	5	1	2026-07-16	2026-07-17		49
+25	2026	first	exam_recognition	\N	1	4	1	2026-10-02	2026-11-30		49
 \.
 
 
@@ -1136,6 +1186,16 @@ COPY public.institutions (id, name, country, city) FROM stdin;
 --
 
 COPY public.la_modification_exams (id, modification_id, host_exam_id, sending_exam_id, grade, date_passed, status, notes, decision_date) FROM stdin;
+17	8	17	2	-1	\N	approved		2026-07-03 08:07:45.543436+00
+18	8	20	4	-1	\N	approved		2026-07-03 08:07:46.17778+00
+19	8	16	1	-1	\N	approved		2026-07-03 08:07:44.937936+00
+22	11	17	2	-1	\N	approved		2026-07-04 14:14:14.446399+00
+23	11	20	4	-1	\N	approved		2026-07-04 14:14:14.446399+00
+24	12	17	2	-1	\N	approved		2026-07-04 14:14:14.446399+00
+25	12	20	4	-1	\N	approved		2026-07-04 14:14:14.446399+00
+26	13	17	2	-1	\N	approved		2026-07-04 14:14:14.446399+00
+27	13	20	4	-1	\N	approved		2026-07-04 14:14:14.446399+00
+30	16	17	2	-1	\N	approved		2026-07-04 15:00:21.556389+00
 \.
 
 
@@ -1144,6 +1204,11 @@ COPY public.la_modification_exams (id, modification_id, host_exam_id, sending_ex
 --
 
 COPY public.la_modifications (id, application_id, description, status, decision_date, notes, document_id) FROM stdin;
+11	19	testing LA modifications 2	rejected	2026-07-04 14:49:18.037001+00	no, test	\N
+12	19	test	rejected	2026-07-04 14:56:37.499217+00	ok	\N
+13	19	test 3	approved	2026-07-04 15:00:21.556389+00		67
+8	19	test	approved	2026-07-04 14:14:14.446399+00		\N
+16	19	test 4	approved	2026-07-04 15:02:47.669608+00		67
 \.
 
 
@@ -1152,19 +1217,17 @@ COPY public.la_modifications (id, application_id, description, status, decision_
 --
 
 COPY public.mapped_exams (id, application_id, date_passed, grade, status, decision_date, notes, host_exam_id, sending_exam_id) FROM stdin;
-141	19	\N	-1	approved	2026-07-03 08:07:45.543436+00		17	2
-142	19	\N	-1	approved	2026-07-03 08:07:46.17778+00		20	4
-145	20	\N	-1	approved	2026-07-03 08:28:09.823246+00		23	3
-155	22	2026-08-12	25	approved	2026-07-03 13:42:30.909943+00	a	28	2
-140	19	\N	-1	approved	2026-07-03 08:07:44.937936+00		16	1
-146	21	2026-07-28	100	pending	2026-07-03 08:36:20.967688+00		24	1
-133	17	\N	-1	approved	2026-07-03 14:57:07.009822+00		11	2
-162	23	\N	-1	approved	2026-07-03 14:57:34.88648+00		34	4
-161	23	\N	-1	approved	2026-07-03 14:57:35.537114+00		33	1
-164	17	\N	-1	pending	\N		14	1
-154	22	2026-08-12	30	approved	2026-07-03 13:38:53.645871+00		27	1
+172	25	2026-10-21	30	approved	2026-07-04 10:08:14.937212+00	asd	18	2
+171	25	\N	-1	approved	2026-07-04 10:08:20.457482+00		16	1
+220	19	\N	-1	approved	2026-07-04 15:02:47.669608+00		17	2
+221	19	\N	-1	approved	2026-07-04 15:02:47.669608+00		19	5
+146	21	2026-07-28	30	pending	2026-07-03 08:36:20.967688+00		24	1
+170	25	2026-10-28	24	pending	2026-07-04 09:30:49.191477+00	asd	20	3
 139	18	\N	-1	pending	\N		24	4
 138	18	\N	-1	approved	2026-07-03 08:05:53.633609+00		25	5
+165	24	\N	-1	approved	2026-07-03 16:15:57.364398+00	dsasadsa	29	2
+168	24	\N	-1	pending	\N		30	3
+169	24	\N	-1	pending	\N		28	1
 \.
 
 
@@ -1220,15 +1283,13 @@ COPY public.partner_institution (id, id_institution, id_partner_institution) FRO
 --
 
 COPY public.uploaded_documents (id, document_type, file_path, user_id, application_id, date_updated, status, decision_date, notes) FROM stdin;
-51	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/23/FRIGO_JOSEPH_Learning_Agreement.pdf	1	23	2026-07-03 14:08:12.241377+00	approved	2026-07-03 14:41:31.067664+00	
-42	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/17/FRIGO_JOSEPH_Learning_Agreement.pdf	1	17	2026-07-03 07:57:46.468816+00	pending	\N	
-43	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/18/FRIGO_JOSEPH_Learning_Agreement.pdf	1	18	2026-07-03 07:59:00.261093+00	approved	2026-07-03 08:00:21.869199+00	
-44	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/19/FRIGO_JOSEPH_Learning_Agreement.pdf	1	19	2026-07-03 08:07:31.780025+00	approved	2026-07-03 08:07:47.190944+00	
-45	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/20/FRIGO_JOSEPH_Learning_Agreement.pdf	1	20	2026-07-03 08:26:07.550031+00	approved	2026-07-03 08:26:49.734184+00	
+63	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/18/summary of application.pdf	1	18	2026-07-04 14:32:04.724631+00	pending	\N	
+67	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/19/Allegato_A_ITA_def.pdf	1	19	2026-07-04 14:57:09.51859+00	approved	2026-07-04 15:00:21.556389+00	
+52	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/24/FRIGO_JOSEPH_Learning_Agreement.pdf	1	24	2026-07-03 16:14:18.387301+00	approved	2026-07-03 16:15:59.614107+00	
 46	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/21/FRIGO_JOSEPH_Learning_Agreement.pdf	1	21	2026-07-03 08:36:04.276047+00	approved	2026-07-03 08:36:21.501759+00	
 47	transcript	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/21/summary of application.pdf	1	21	2026-07-03 09:40:11.820635+00	pending	\N	
-49	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/22/JOSEPH_FRIGO_learning-agreement-studies.pdf	1	22	2026-07-03 11:44:08.585156+00	approved	2026-07-03 11:48:17.134775+00	
-50	transcript	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/22/Bando_Unico_DJD_2025_def.pdf	1	22	2026-07-03 12:04:39.395122+00	approved	2026-07-03 12:05:06.785693+00	
+53	learning_agreement	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/25/FRIGO_JOSEPH_Learning_Agreement.pdf	1	25	2026-07-04 09:17:04.536255+00	approved	2026-07-04 09:17:26.361519+00	
+54	transcript	/home/fr1g0/dev/ProgettoBD/backend/uploads/applications/25/FRIGO_JOSEPH_Learning_Agreement.pdf	1	25	2026-07-04 09:41:35.919905+00	approved	2026-07-04 10:10:26.446611+00	
 \.
 
 
@@ -1342,7 +1403,7 @@ COPY public.users (id, email, password_hash, role, firstname, lastname, id_insti
 -- Name: applications_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.applications_id_seq', 23, true);
+SELECT pg_catalog.setval('public.applications_id_seq', 27, true);
 
 
 --
@@ -1363,21 +1424,21 @@ SELECT pg_catalog.setval('public.institutions_id_seq', 1, false);
 -- Name: la_modification_exams_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.la_modification_exams_id_seq', 3, true);
+SELECT pg_catalog.setval('public.la_modification_exams_id_seq', 30, true);
 
 
 --
 -- Name: la_modifications_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.la_modifications_id_seq', 1, true);
+SELECT pg_catalog.setval('public.la_modifications_id_seq', 16, true);
 
 
 --
 -- Name: mapped_exams_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.mapped_exams_id_seq', 164, true);
+SELECT pg_catalog.setval('public.mapped_exams_id_seq', 221, true);
 
 
 --
@@ -1391,7 +1452,7 @@ SELECT pg_catalog.setval('public.partner_institution_id_seq', 41, true);
 -- Name: uploaded_documents_id_seq; Type: SEQUENCE SET; Schema: public; Owner: myuser
 --
 
-SELECT pg_catalog.setval('public.uploaded_documents_id_seq', 51, true);
+SELECT pg_catalog.setval('public.uploaded_documents_id_seq', 67, true);
 
 
 --
@@ -1578,6 +1639,13 @@ CREATE TRIGGER document_status_update_check BEFORE UPDATE ON public.uploaded_doc
 --
 
 CREATE TRIGGER exam_grade_changes_check BEFORE UPDATE ON public.mapped_exams FOR EACH ROW WHEN (((new.grade IS DISTINCT FROM old.grade) OR (new.date_passed IS DISTINCT FROM old.date_passed))) EXECUTE FUNCTION public.check_grade_changes();
+
+
+--
+-- Name: mapped_exams exam_mapping_insert_check; Type: TRIGGER; Schema: public; Owner: myuser
+--
+
+CREATE TRIGGER exam_mapping_insert_check BEFORE INSERT OR DELETE ON public.mapped_exams FOR EACH ROW EXECUTE FUNCTION public.check_exam_mapping_insert();
 
 
 --
@@ -1808,5 +1876,5 @@ REFRESH MATERIALIZED VIEW public.mv_institution_activity;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict bgkxYOdJqd3y9esJvpKwG6X5Do0JlqKg8BnwBZBiRbWk04YtqBDjf2cD1IfIrN3
+\unrestrict qhjOaqcv1T22CFwtzbBLSl6G5SubAclLa73XTwnEhQMsK46cm99bihv04XFpL7j
 

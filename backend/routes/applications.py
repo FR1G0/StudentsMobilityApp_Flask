@@ -107,7 +107,7 @@ def post_update_application(id):
             return jsonify({"status": "failed", "error": "access restricted, cannot modify this application"}), 403
 
         # changes to application may only be done if application status is adequate
-        if application.status not in ('learning_agreement_pending','created','mobility_ongoing'):
+        if application.status in ('pre_departure_completed','closed'):
             return jsonify({"status": "failed", "error": f"cannot modify this application while it's in {application.status} status"}), 403
 
         # only these fields may be changed here; reject anything else
@@ -125,9 +125,7 @@ def post_update_application(id):
         # restrict institution and refernt changes
         if application.status == 'mobility_ongoing':
             allowed_fields = {
-                "year",
                 "notes",
-                "semester",
                 "date_arrived",
                 "date_departure",
                 }
@@ -421,7 +419,7 @@ def insert_application_document():
         new_doc = UploadedDocument(
             document_type=data.get("document_type"),
             file_path=data.get("file_path"),
-            user_id=data.get("user_id"),
+            user_id=g.current_user_id,
             application_id=data.get("application_id"),
             notes=data.get("notes", ""),
         )
@@ -599,7 +597,7 @@ def list_application_exam_mappings(application_id):
         if not application:
             return jsonify({"error": "application not found"}), 404
         if not can_view_application(application, g.current_user, g.current_user_role):
-            return jsonify({"error": "not authorized for this application"}), 403
+            return jsonify({"error": f"{g.current_user_role} user not authorized for this application"}), 403
 
         mappings = MappedExam.query.filter_by(application_id=application_id).all()
         result = []
