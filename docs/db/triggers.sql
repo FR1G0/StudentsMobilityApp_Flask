@@ -204,6 +204,10 @@ BEGIN
 		IF NEW.date_arrived IS DISTINCT FROM OLD.date_arrived THEN
 			RAISE EXCEPTION 'you can only update the departure date, not the arrival date';
 		END IF;
+
+		IF NEW.date_arrived IS NULL OR NEW.date_departure IS NULL THEN
+			RAISE EXCEPTION 'date arrived or date departure cannot be null';
+		END IF;
 		
 		IF EXISTS (SELECT 1
 			FROM la_modifications
