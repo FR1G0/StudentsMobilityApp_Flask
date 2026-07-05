@@ -468,34 +468,6 @@
     </fieldset>
   }
 
-  <!-- student: end the mobility -->
-  @if (user.role === 'student' && application.status === 'mobility_ongoing') {
-    <div class="flex items-center justify-end pt-4 border-t border-border-subtle">
-      <button
-        type="button"
-        (click)="endMobility()"
-        class="flex items-center gap-1.5 px-4 py-2 rounded text-[0.7rem] font-medium bg-[#1a1026] border border-[#3d1a52] text-[#a04dd4] hover:bg-[#20143a] transition-all duration-150"
-      >
-        <span class="mdi mdi-flag-checkered text-sm"></span>
-        End Mobility
-      </button>
-    </div>
-  }
-
-  <!-- student: start the mobility -->
-  @if (user.role === 'student' && application.status === 'pre_departure_completed') {
-    <div class="flex items-center justify-end pt-4 border-t border-border-subtle">
-      <button
-        type="button"
-        (click)="startMobility()"
-        class="flex items-center gap-1.5 px-4 py-2 rounded text-[0.7rem] font-medium bg-[#101826] border border-[#1a2e52] text-[#4d78d4] hover:bg-[#13203a] transition-all duration-150"
-      >
-        <span class="mdi mdi-airplane-takeoff text-sm"></span>
-        Start Mobility
-      </button>
-    </div>
-  }
-
   <!-- staff: advance to pre-departure (a database trigger validates the conditions) -->
   @if (user.role === 'staff' && application.status === 'created') {
     <div class="flex items-center justify-end pt-4 border-t border-border-subtle">

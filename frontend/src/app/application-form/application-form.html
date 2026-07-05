@@ -293,8 +293,8 @@
                     type="number"
                     min="18"
                     max="30"
-                    [disabled]="pair.status === 'approved'"
-                    class="w-full bg-bg-base border border-border-default hover:border-border-strong focus:border-border-strong focus:outline-none rounded px-3 py-2 text-[0.8rem] text-text-primary transition-colors duration-150 disabled:opacity-50"
+                    [disabled]="examResultLocked(pair)"
+                    class="w-full bg-bg-base border border-border-default hover:border-border-strong focus:border-border-strong focus:outline-none rounded px-3 py-2 text-[0.8rem] text-text-primary transition-colors duration-150 [color-scheme:dark] disabled:opacity-50"
                   />
                 </div>
                 <div class="flex flex-col gap-1">
@@ -303,12 +303,15 @@
                     [(ngModel)]="pair.date_passed"
                     [name]="'datePassed_' + i"
                     type="date"
-                    [disabled]="pair.status === 'approved'"
+                    [disabled]="examResultLocked(pair)"
                     class="w-full bg-bg-base border border-border-default hover:border-border-strong focus:border-border-strong focus:outline-none rounded px-3 py-2 text-[0.8rem] text-text-primary transition-colors duration-150 [color-scheme:dark] disabled:opacity-50"
                   />
                 </div>
               </div>
             }
+          }
+          @if (action === 'edit' && status === 'exam_recognition' && !existingTranscript) {
+            <small class="text-red-500 text-xs">uploaded transcript of records required before updating grade</small>
           }
         </div>
 
