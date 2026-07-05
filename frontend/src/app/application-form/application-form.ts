@@ -7,7 +7,7 @@ import { App } from '../app';
 import { Cookies } from '../cookies';
 import { User, Users } from '../api/users';
 import { Institutions, PartnerLink } from '../api/institutions';
-import { Applications, ApplicationInsertBody, ApplicationUpdateBody, UploadedDocument, LAModification, ModificationMappingItem } from '../api/applications';
+import { Applications, ApplicationInsertBody, ApplicationUpdateBody, ApplicationStatusBody, UploadedDocument, LAModification, ModificationMappingItem } from '../api/applications';
 import { Exams, Exam, MappedExamRow } from '../api/exams';
 
 @Component({
@@ -493,7 +493,13 @@ export class ApplicationForm {
   }
 
   private changeStatus(newStatus: string, message: string, then?: () => void) {
-    this.applicationsApi.updateApplicationStatus(this.editApplicationId, { status: newStatus }).subscribe({
+    // carry the student's notes along with every status transition: they are
+    // editable in the phases listed by notesEditable() and must be persisted
+    const body: ApplicationStatusBody = { status: newStatus };
+    if (this.notes && this.notes.trim()) {
+      body.notes = this.notes;
+    }
+    this.applicationsApi.updateApplicationStatus(this.editApplicationId, body).subscribe({
       next: res => {
         if (res.status !== 'success') {
           this.app.send_notification(res.error || 'Operation failed', 'error');
@@ -737,6 +743,20 @@ export class ApplicationForm {
     this.submitError = this.backendError(err, fallback);
     this.app.send_notification(this.submitError, 'error');
     this.cdr.markForCheck();
+  }
+
+  // the student may add/edit notes while creating the application, and while it
+  // sits in a phase that still accepts edits. on create and in
+  // 'created'/'learning_agreement_pending' the notes are saved through the
+  // regular insert/update; in 'mobility_ongoing'/'exam_recognition' they ride
+  // along with the status transition (see changeStatus).
+  notesEditable(): boolean {
+    if (this.action === 'create') {
+      return true;
+    }
+    return this.action === 'edit' && this.user.role === 'student' &&
+      (this.status === 'created' || this.status === 'learning_agreement_pending' ||
+        this.status === 'mobility_ongoing' || this.status === 'exam_recognition');
   }
 
   // core application fields are locked once the pre-departure checks are done

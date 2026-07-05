@@ -199,16 +199,16 @@
           </div>
         </div>
 
-        @if(notes != '') {
+        @if(notesEditable() || notes != '') {
         <div class="flex flex-col gap-1 col-span-2">
           <label for="notes" class="text-[0.7rem] text-text-secondary">Notes</label>
           <textarea
             [(ngModel)]="notes"
             id="notes"
             name="notes"
-            [disabled]="user.role=='student'"
+            [disabled]="!notesEditable()"
             rows="3"
-            placeholder="Additional notes by referent ..."
+            placeholder="Add notes for this application ..."
             class="w-full bg-bg-base border border-border-default hover:border-border-strong focus:border-border-strong focus:outline-none rounded px-3 py-2 text-[0.8rem] text-text-primary placeholder:text-text-disabled transition-colors duration-150 resize-none"
           ></textarea>
         </div>

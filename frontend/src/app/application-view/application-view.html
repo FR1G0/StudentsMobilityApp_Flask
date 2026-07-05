@@ -129,13 +129,13 @@
         </div>
       </div>
 
-      @if (application.notes) {
-        <div class="flex flex-col gap-1 col-span-2">
-          <label class="text-[0.7rem] text-text-secondary">Notes</label>
-          <textarea readonly rows="3"
-            class="w-full bg-bg-base border border-border-subtle rounded px-3 py-2 text-[0.8rem] text-text-muted cursor-default resize-none">{{ application.notes }}</textarea>
-        </div>
-      }
+      <!-- notes are always shown to every role viewing the application -->
+      <div class="flex flex-col gap-1 col-span-2">
+        <label class="text-[0.7rem] text-text-secondary">Notes</label>
+        <textarea readonly rows="3"
+          placeholder="No notes for this application"
+          class="w-full bg-bg-base border border-border-subtle rounded px-3 py-2 text-[0.8rem] text-text-muted cursor-default resize-none placeholder:text-text-disabled">{{ application.notes }}</textarea>
+      </div>
 
     </div>
   </fieldset>
