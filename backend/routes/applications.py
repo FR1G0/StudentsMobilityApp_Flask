@@ -240,6 +240,9 @@ def update_status_application(id):
                 ), 403
 
         application.status = data["status"]
+
+        if "notes" in data:
+            application.notes = data["notes"]
         db.session.commit()
         return jsonify({"status": "success"}), 200
     except Exception as e:

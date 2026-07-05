@@ -196,6 +196,15 @@ def update_mapped_exam_status(id):
         if application.status in ('pre_departure_completed','closed'):
             return jsonify( {"status": "failed", "error": f"cannot decide on this exam when associated application is in {application.status}"}), 403
 
+        if application.status == 'exam_recognition':
+            doc = UploadedDocument.query.filter(
+                    UploadedDocument.application_id == application.id,
+                    UploadedDocument.document_type == 'transcript',
+                    UploadedDocument.status == 'approved'
+                    ).first()
+            if not doc:
+                return jsonify({"status": "failed", "error": "approved transcript of records required"}), 404
+
         if "status" in data:
             mapping.status = data["status"]
         if "notes" in data:
