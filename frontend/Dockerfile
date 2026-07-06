@@ -7,4 +7,4 @@ RUN npx ng build --configuration production
 
 EXPOSE 4200
 
-CMD ["sh","start.sh"]
+CMD ["sh","-c","npx http-server dist/frontend/browser -p 4200 -c-1"]
