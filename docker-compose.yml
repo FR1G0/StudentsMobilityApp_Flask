@@ -1,10 +1,8 @@
 # docker-compose.yml
-# Mirrors run_project.sh: builds and runs the database, backend and frontend
-# containers on a shared network so they can talk to each other.
 
 services:
 
-  # 1. Database (postgres) - built from the root Dockerfile
+  # 1. Database (postgres) 
   database:
     build:
       context: .
@@ -17,14 +15,14 @@ services:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
-    # wait until postgres is ready before backend runs migrations
+    # healthcheck
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U myuser -d overseas_db"]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  # 2. Backend (flask + sqlalchemy) - built from backend/Dockerfile
+  # 2. Backend (flask + sqlalchemy) 
   backend:
     build:
       context: ./backend
@@ -37,15 +35,13 @@ services:
       - "5000:5000"
     environment:
       - DATABASE_URL=postgresql://myuser:123@overseas-db-container:5432/overseas_db
-      # JWT/session secret. Set in host shell or a root .env (compose auto-loads it).
-      # Falls back to a dev default ONLY so local up doesn't 500 — override in prod.
       - SECRET_KEY=${SECRET_KEY:-supersecret}
       - JWT_SECRET=${JWT_SECRET:-}
     depends_on:
       database:
         condition: service_healthy
 
-  # 3. Frontend (angularjs) - built from frontend/Dockerfile
+  # 3. Frontend (angularjs) 
   frontend:
     build:
       context: ./frontend
@@ -59,12 +55,8 @@ services:
     depends_on:
       - backend
 
-# shared network so the containers can reach each other by service name.
-# compose-owned: created on `up`, removed on `down`. Self-contained, no
-# pre-existing network required (`docker compose up` works from a clean clone).
 networks:
   overseas-network:
 
-# named volume to persist the postgres data (replaces VOLUME in the db image)
 volumes:
   db_data:

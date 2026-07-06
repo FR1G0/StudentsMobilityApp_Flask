@@ -10,18 +10,6 @@ if ! command -v docker &> /dev/null ; then
 	exit 1
 fi
 
-### NOTE: prefer docker compose when available (v2 plugin or legacy binary)
-
-if docker compose version &> /dev/null ; then
-	echo "[DOCKER] docker compose found, starting the full stack..."
-	exec docker compose up --build
-elif command -v docker-compose &> /dev/null ; then
-	echo "[DOCKER] legacy docker-compose found, starting the full stack..."
-	exec docker-compose up --build
-fi
-
-echo "[DOCKER] docker compose not available, falling back to plain docker."
-
 ###  NOTE: building
 
 # 1. Database
