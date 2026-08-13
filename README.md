@@ -1,4 +1,5 @@
-# StudentMobilityApp
+# StudentMobilityApp 
+<b>Flask + SQLAlchemy Fork of [FR1G0/StudentsMobilityApp](https://github.com/FR1G0/StudentsMobilityApp) </b> <br><br>
 ![Preview Image of StudentMobilityApp Ui](https://github.com/user-attachments/assets/d9d6d345-fa12-4c4b-9466-f9c3f3d5fc32 "Image Preview of StudentMobilityApp")
 ## About
 
